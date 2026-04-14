@@ -3,7 +3,7 @@
  * Plugin Name: Ranki Publisher
  * Plugin URI:  https://ranki.com.au
  * Description: Connects your WordPress site to Ranki for automated SEO content publishing. Install this plugin so Ranki can publish articles, upload images, and set SEO metadata automatically.
- * Version:     1.4.0
+ * Version:     1.5.0
  * Author:      Ranki
  * Author URI:  https://ranki.com.au
  * License:     GPL-2.0+
@@ -12,8 +12,9 @@
 
 defined('ABSPATH') || exit;
 
-define('RANKI_VERSION', '1.4.0');
+define('RANKI_VERSION', '1.5.0');
 define('RANKI_OPTION_KEY', 'ranki_secret_key');
+define('RANKI_API_BASE', 'https://ranki-backend-production.up.railway.app');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Activation: generate a secret key
@@ -22,9 +23,11 @@ register_activation_hook(__FILE__, function () {
     if (!get_option(RANKI_OPTION_KEY)) {
         update_option(RANKI_OPTION_KEY, wp_generate_password(40, false));
     }
-    // Auto-whitelist Cloudflare Worker IPs in .htaccess so SiteGround
-    // (and similar hosts) don't block Ranki's publishing requests
     ranki_update_htaccess_whitelist();
+    // Schedule the pull-queue cron if not already scheduled
+    if (!wp_next_scheduled('ranki_sync_cron')) {
+        wp_schedule_event(time(), 'ranki_every_5min', 'ranki_sync_cron');
+    }
 });
 
 function ranki_update_htaccess_whitelist() {
@@ -70,11 +73,16 @@ add_action('upgrader_process_complete', function ($upgrader, $options) {
 
 // Remove on deactivation
 register_deactivation_hook(__FILE__, function () {
+    // Remove .htaccess rules
     $htaccess = ABSPATH . '.htaccess';
-    if (!file_exists($htaccess) || !is_writable($htaccess)) return;
-    $content = file_get_contents($htaccess);
-    $content = preg_replace('/\n?# BEGIN Ranki Publisher.*?# END Ranki Publisher\n?/s', '', $content);
-    file_put_contents($htaccess, $content);
+    if (file_exists($htaccess) && is_writable($htaccess)) {
+        $content = file_get_contents($htaccess);
+        $content = preg_replace('/\n?# BEGIN Ranki Publisher.*?# END Ranki Publisher\n?/s', '', $content);
+        file_put_contents($htaccess, $content);
+    }
+    // Remove cron schedule
+    $timestamp = wp_next_scheduled('ranki_sync_cron');
+    if ($timestamp) wp_unschedule_event($timestamp, 'ranki_sync_cron');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +149,195 @@ add_action('admin_init', function () {
         });
     }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pull Queue — cron poller (runs every 5 min via WP-Cron)
+// WordPress calls Ranki, gets pending jobs, publishes locally, reports back.
+// This completely bypasses host firewalls — all requests are outbound from WP.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Register custom 5-minute schedule
+add_filter('cron_schedules', function ($schedules) {
+    $schedules['ranki_every_5min'] = [
+        'interval' => 300,
+        'display'  => 'Every 5 Minutes (Ranki)',
+    ];
+    return $schedules;
+});
+
+// Hook cron action
+add_action('ranki_sync_cron', 'ranki_process_queue');
+
+// Ensure cron stays scheduled (re-registers if somehow cleared)
+add_action('init', function () {
+    if (!wp_next_scheduled('ranki_sync_cron')) {
+        wp_schedule_event(time(), 'ranki_every_5min', 'ranki_sync_cron');
+    }
+});
+
+/**
+ * Main pull-queue processor. Called every 5 minutes via WP-Cron.
+ * Fetches pending jobs from Ranki, processes them locally, reports back.
+ */
+function ranki_process_queue() {
+    $key = get_option(RANKI_OPTION_KEY, '');
+    if (!$key) return;
+
+    $api_base = defined('RANKI_API_BASE') ? RANKI_API_BASE : 'https://ranki-backend-production.up.railway.app';
+
+    // Fetch pending jobs
+    $response = wp_remote_get("{$api_base}/wp-sync/{$key}", [
+        'timeout'  => 15,
+        'headers'  => ['Accept' => 'application/json'],
+        'sslverify' => true,
+    ]);
+
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        return; // silent fail — will retry in 5 min
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    $jobs = $body['jobs'] ?? [];
+    if (empty($jobs)) return;
+
+    foreach ($jobs as $job) {
+        ranki_process_single_job($job, $api_base, $key);
+    }
+}
+
+/**
+ * Process a single queue job: publish or upload-image.
+ */
+function ranki_process_single_job(array $job, string $api_base, string $key): void {
+    $job_id  = $job['id'];
+    $payload = $job['payload'] ?? [];
+
+    if (empty($payload)) {
+        ranki_report_job_done($api_base, $key, $job_id, false, 0, '', 'Empty payload');
+        return;
+    }
+
+    // Build a WP_REST_Request from the payload
+    $raw     = json_encode($payload);
+    $request = new WP_REST_Request('POST');
+    $request->set_body($raw);
+    $request->set_header('Content-Type', 'application/json');
+
+    $action = $payload['action'] ?? 'publish'; // default to publish
+
+    try {
+        if ($action === 'upload-image') {
+            $result = ranki_handle_upload_image($request);
+            if (is_wp_error($result)) {
+                ranki_report_job_done($api_base, $key, $job_id, false, 0, '', $result->get_error_message());
+            } else {
+                $data = $result->get_data();
+                ranki_report_job_done($api_base, $key, $job_id, true, $data['media_id'] ?? 0, '');
+            }
+        } elseif ($action === 'update-content') {
+            $result = ranki_handle_update_content($request);
+            if (is_wp_error($result)) {
+                ranki_report_job_done($api_base, $key, $job_id, false, 0, '', $result->get_error_message());
+            } else {
+                ranki_report_job_done($api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '');
+            }
+        } else {
+            // Default: publish
+            $result = ranki_handle_publish($request);
+            if (is_wp_error($result)) {
+                ranki_report_job_done($api_base, $key, $job_id, false, 0, '', $result->get_error_message());
+            } else {
+                $data = $result->get_data();
+                ranki_report_job_done($api_base, $key, $job_id, true, $data['post_id'] ?? 0, $data['post_url'] ?? '');
+            }
+        }
+    } catch (Exception $e) {
+        ranki_report_job_done($api_base, $key, $job_id, false, 0, '', $e->getMessage());
+    }
+}
+
+/**
+ * Report job outcome back to Ranki API.
+ */
+function ranki_report_job_done(string $api_base, string $key, string $job_id, bool $success, int $post_id, string $post_url, string $error = ''): void {
+    wp_remote_post("{$api_base}/wp-sync/{$key}/done", [
+        'timeout'     => 10,
+        'headers'     => ['Content-Type' => 'application/json'],
+        'body'        => json_encode([
+            'job_id'   => $job_id,
+            'success'  => $success,
+            'post_id'  => $post_id,
+            'post_url' => $post_url,
+            'error'    => $error,
+        ]),
+        'sslverify'   => true,
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-update — hooks into WordPress's native plugin update system.
+// When a new version is published at ranki.com.au, every client's WP admin
+// sees the standard "Plugin Update Available" notice and can one-click update.
+// ─────────────────────────────────────────────────────────────────────────────
+
+add_filter('pre_set_site_transient_update_plugins', function ($transient) {
+    if (empty($transient->checked)) return $transient;
+
+    $plugin_file = plugin_basename(__FILE__);
+    $current_version = $transient->checked[$plugin_file] ?? RANKI_VERSION;
+
+    // Check for updates (cache result for 12 hours)
+    $cached = get_transient('ranki_plugin_update_info');
+    if (!$cached) {
+        $resp = wp_remote_get('https://ranki.com.au/api/plugin/info', [
+            'timeout'  => 5,
+            'sslverify' => true,
+        ]);
+        if (!is_wp_error($resp) && wp_remote_retrieve_response_code($resp) === 200) {
+            $cached = json_decode(wp_remote_retrieve_body($resp), true);
+            if ($cached) set_transient('ranki_plugin_update_info', $cached, 12 * HOUR_IN_SECONDS);
+        }
+    }
+
+    if ($cached && version_compare($cached['version'] ?? '0', $current_version, '>')) {
+        $transient->response[$plugin_file] = (object) [
+            'slug'        => 'ranki-publisher',
+            'plugin'      => $plugin_file,
+            'new_version' => $cached['version'],
+            'url'         => 'https://ranki.com.au',
+            'package'     => $cached['download_url'] ?? '',
+            'tested'      => $cached['tested'] ?? '6.5',
+            'requires'    => $cached['requires'] ?? '5.6',
+        ];
+    }
+
+    return $transient;
+});
+
+// Provide plugin info for the "View version details" popup
+add_filter('plugins_api', function ($result, $action, $args) {
+    if ($action !== 'plugin_information' || ($args->slug ?? '') !== 'ranki-publisher') {
+        return $result;
+    }
+    $cached = get_transient('ranki_plugin_update_info');
+    if (!$cached) return $result;
+
+    return (object) [
+        'name'          => 'Ranki Publisher',
+        'slug'          => 'ranki-publisher',
+        'version'       => $cached['version'] ?? RANKI_VERSION,
+        'author'        => '<a href="https://ranki.com.au">Ranki</a>',
+        'homepage'      => 'https://ranki.com.au',
+        'short_description' => 'Connects your WordPress site to Ranki for automated SEO content publishing.',
+        'download_link' => $cached['download_url'] ?? '',
+        'requires'      => $cached['requires'] ?? '5.6',
+        'tested'        => $cached['tested'] ?? '6.5',
+        'sections'      => [
+            'description' => 'Connects your WordPress site to Ranki for automated SEO content publishing, including the pull-queue cron system that bypasses host firewalls.',
+            'changelog'   => $cached['changelog'] ?? '',
+        ],
+    ];
+}, 10, 3);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REST API endpoints (kept for non-blocked hosts)
