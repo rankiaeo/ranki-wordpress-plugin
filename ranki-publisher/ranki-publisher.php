@@ -3,7 +3,7 @@
  * Plugin Name: Ranki Publisher
  * Plugin URI:  https://ranki.com.au
  * Description: Connects your WordPress site to Ranki for automated SEO content publishing. Install this plugin so Ranki can publish articles, upload images, and set SEO metadata automatically.
- * Version:     1.5.0
+ * Version:     1.6.0
  * Author:      Ranki
  * Author URI:  https://ranki.com.au
  * License:     GPL-2.0+
@@ -12,7 +12,7 @@
 
 defined('ABSPATH') || exit;
 
-define('RANKI_VERSION', '1.5.0');
+define('RANKI_VERSION', '1.6.0');
 define('RANKI_OPTION_KEY', 'ranki_secret_key');
 define('RANKI_API_BASE', 'https://ranki-backend-production.up.railway.app');
 
@@ -185,10 +185,13 @@ function ranki_process_queue() {
 
     $api_base = defined('RANKI_API_BASE') ? RANKI_API_BASE : 'https://ranki-backend-production.up.railway.app';
 
-    // Fetch pending jobs
-    $response = wp_remote_get("{$api_base}/wp-sync/{$key}", [
-        'timeout'  => 15,
-        'headers'  => ['Accept' => 'application/json'],
+    // Fetch pending jobs — key sent in header, never in URL (avoids log exposure)
+    $response = wp_remote_get("{$api_base}/wp-sync/poll", [
+        'timeout'   => 15,
+        'headers'   => [
+            'Accept'      => 'application/json',
+            'X-Ranki-Key' => $key,
+        ],
         'sslverify' => true,
     ]);
 
@@ -260,17 +263,20 @@ function ranki_process_single_job(array $job, string $api_base, string $key): vo
  * Report job outcome back to Ranki API.
  */
 function ranki_report_job_done(string $api_base, string $key, string $job_id, bool $success, int $post_id, string $post_url, string $error = ''): void {
-    wp_remote_post("{$api_base}/wp-sync/{$key}/done", [
-        'timeout'     => 10,
-        'headers'     => ['Content-Type' => 'application/json'],
-        'body'        => json_encode([
+    wp_remote_post("{$api_base}/wp-sync/done", [
+        'timeout'   => 10,
+        'headers'   => [
+            'Content-Type' => 'application/json',
+            'X-Ranki-Key'  => $key,
+        ],
+        'body'      => json_encode([
             'job_id'   => $job_id,
             'success'  => $success,
             'post_id'  => $post_id,
             'post_url' => $post_url,
             'error'    => $error,
         ]),
-        'sslverify'   => true,
+        'sslverify' => true,
     ]);
 }
 
