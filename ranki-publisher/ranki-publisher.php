@@ -16,9 +16,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.6.0' );
+define( 'RANKI_VERSION',    '1.6.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
-define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app' );
+define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Load translations.
 add_action( 'init', function () {
