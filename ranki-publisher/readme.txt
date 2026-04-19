@@ -2,7 +2,7 @@
 Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
-Tested up to: 6.7
+Tested up to: 6.9
 Stable tag: 1.6.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later

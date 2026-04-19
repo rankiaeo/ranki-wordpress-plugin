@@ -9,10 +9,9 @@
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       ranki-publisher
- * Domain Path:       /languages
  * Requires at least: 5.6
  * Requires PHP:      7.4
- * Tested up to:      6.7
+ * Tested up to:      6.9
  */
 
 defined( 'ABSPATH' ) || exit;
