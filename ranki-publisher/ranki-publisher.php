@@ -461,7 +461,19 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 
 	$title      = sanitize_text_field( $params['title'] ?? '' );
 	$content    = wp_kses_post( $params['content'] ?? '' );
-	$slug       = sanitize_title( $params['slug'] ?? '' );
+	// Slug: preserve non-ASCII scripts (Hebrew, Arabic, etc.) that sanitize_title() strips.
+	$raw_slug = trim( $params['slug'] ?? '' );
+	if ( $raw_slug && preg_match( '/[^\x00-\x7F]/u', $raw_slug ) ) {
+		// Unicode slug — WordPress supports non-ASCII post_name natively.
+		// Lower-case, collapse whitespace to hyphens, strip anything that isn't
+		// a Unicode letter/number or a hyphen.
+		$slug = mb_strtolower( $raw_slug, 'UTF-8' );
+		$slug = preg_replace( '/\s+/u', '-', $slug );
+		$slug = preg_replace( '/[^\p{L}\p{N}\-]/u', '', $slug );
+		$slug = trim( $slug, '-' );
+	} else {
+		$slug = sanitize_title( $raw_slug );
+	}
 	$excerpt    = sanitize_text_field( $params['excerpt'] ?? '' );
 	$status     = in_array( $params['status'] ?? 'publish', array( 'publish', 'draft', 'pending' ), true )
 					? $params['status'] : 'publish';
