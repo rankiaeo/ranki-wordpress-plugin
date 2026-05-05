@@ -654,6 +654,11 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 	$assigned_cats = wp_get_post_categories( $post_id, array( 'fields' => 'names' ) );
 	$cat_name      = ! empty( $assigned_cats ) ? $assigned_cats[0] : 'Uncategorized';
 
+	// ── 7. Purge page cache ───────────────────────────────────────────────────
+	// SiteGround and other hosts cache 404s aggressively. Purge after publish
+	// so the new permalink is immediately accessible.
+	ranki_purge_cache( $post_id, $post_url );
+
 	return rest_ensure_response( array(
 		'ok'        => true,
 		'post_id'   => $post_id,
@@ -662,6 +667,53 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 		'media_url' => $media_url,
 		'category'  => $cat_name,
 	) );
+}
+
+/**
+ * Purge page cache after publishing a post.
+ * Supports SiteGround Optimizer, WP Rocket, W3 Total Cache, LiteSpeed,
+ * WP Super Cache, and WordPress's own object cache. Silently skips any
+ * plugin that is not active.
+ *
+ * @param int    $post_id  WordPress post ID.
+ * @param string $post_url Full permalink URL.
+ */
+function ranki_purge_cache( int $post_id, string $post_url ): void {
+	// SiteGround Optimizer (sg-cachepress) — both old and new API
+	if ( function_exists( 'sg_cachepress_purge_cache' ) ) {
+		sg_cachepress_purge_cache();
+	}
+	if ( function_exists( 'sgo_purge_cache' ) ) {
+		sgo_purge_cache();
+	}
+	// SG Optimizer also responds to this action (plugin v7+)
+	do_action( 'siteground_optimizer_flush_cache' );
+	do_action( 'siteground_optimizer_purge_by_url', $post_url );
+
+	// WP Rocket
+	if ( function_exists( 'rocket_clean_post' ) ) {
+		rocket_clean_post( $post_id );
+	}
+
+	// W3 Total Cache
+	if ( function_exists( 'w3tc_flush_post' ) ) {
+		w3tc_flush_post( $post_id );
+	}
+
+	// LiteSpeed Cache
+	do_action( 'litespeed_purge_post', $post_id );
+
+	// WP Super Cache
+	if ( function_exists( 'wp_cache_post_change' ) ) {
+		wp_cache_post_change( $post_id );
+	}
+
+	// Cloudflare (via Cloudflare plugin)
+	do_action( 'cloudflare_purge_by_url', array( $post_url ) );
+
+	// Flush WordPress object cache and rewrite rules so the permalink resolves
+	wp_cache_flush();
+	flush_rewrite_rules( false );
 }
 
 /**
