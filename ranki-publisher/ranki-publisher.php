@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.6.2
+ * Version:           1.6.3
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.6.2' );
+define( 'RANKI_VERSION',    '1.6.3' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -302,6 +302,11 @@ add_action( 'rest_api_init', function () {
 		'callback'            => 'ranki_handle_update_content',
 		'permission_callback' => 'ranki_check_auth',
 	) );
+	register_rest_route( 'ranki/v1', '/set-schema', array(
+		'methods'             => 'POST',
+		'callback'            => 'ranki_handle_set_schema',
+		'permission_callback' => 'ranki_check_auth',
+	) );
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,7 +320,7 @@ add_action( 'template_redirect', function () {
 	}
 
 	$action  = sanitize_text_field( wp_unslash( $_GET['ranki_action'] ) );
-	$allowed = array( 'publish', 'upload-image', 'ping', 'update-content' );
+	$allowed = array( 'publish', 'upload-image', 'ping', 'update-content', 'set-schema' );
 	if ( ! in_array( $action, $allowed, true ) ) {
 		return;
 	}
@@ -357,6 +362,8 @@ add_action( 'template_redirect', function () {
 		$result = ranki_handle_upload_image( $request );
 	} elseif ( 'update-content' === $action ) {
 		$result = ranki_handle_update_content( $request );
+	} elseif ( 'set-schema' === $action ) {
+		$result = ranki_handle_set_schema( $request );
 	} else {
 		wp_send_json( array( 'error' => __( 'Unknown action', 'ranki-publisher' ) ), 400 );
 		exit;
@@ -654,6 +661,10 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 		if ( $seo_title ) update_post_meta( $post_id, '_yoast_wpseo_title',    $seo_title );
 		if ( $meta_desc ) update_post_meta( $post_id, '_yoast_wpseo_metadesc', $meta_desc );
 	}
+	// Re-apply schema explicitly — some security plugins wipe private meta during save_post.
+	if ( $schema ) {
+		update_post_meta( $post_id, '_ranki_schema_jsonld', $schema );
+	}
 
 	$post_url      = get_permalink( $post_id );
 	$assigned_cats = wp_get_post_categories( $post_id, array( 'fields' => 'names' ) );
@@ -756,6 +767,46 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
+
+	return rest_ensure_response( array(
+		'ok'      => true,
+		'post_id' => $post_id,
+	) );
+}
+
+/**
+ * REST callback: set or replace the schema JSON-LD for an existing post.
+ * Accepts {post_id, schema_jsonld} and stores validated JSON in _ranki_schema_jsonld.
+ *
+ * @param WP_REST_Request $request REST request object.
+ * @return WP_REST_Response|WP_Error
+ */
+function ranki_handle_set_schema( WP_REST_Request $request ) {
+	$params  = $request->get_json_params();
+	$post_id = absint( $params['post_id'] ?? 0 );
+	$raw     = $params['schema_jsonld'] ?? '';
+
+	if ( ! $post_id ) {
+		return new WP_Error( 'missing_post_id', __( 'post_id is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+	if ( '' === $raw ) {
+		return new WP_Error( 'missing_schema', __( 'schema_jsonld is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		/* translators: %d: WordPress post ID */
+		return new WP_Error( 'not_found', sprintf( __( 'Post %d not found', 'ranki-publisher' ), $post_id ), array( 'status' => 404 ) );
+	}
+
+	$decoded = json_decode( $raw, true );
+	if ( null === $decoded ) {
+		return new WP_Error( 'invalid_json', __( 'schema_jsonld must be valid JSON', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	$schema = wp_json_encode( $decoded );
+	update_post_meta( $post_id, '_ranki_schema_jsonld', $schema );
+	ranki_purge_cache( $post_id, get_permalink( $post_id ) );
 
 	return rest_ensure_response( array(
 		'ok'      => true,
