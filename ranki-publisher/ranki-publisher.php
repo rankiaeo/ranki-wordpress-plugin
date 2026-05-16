@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.6.3
+ * Version:           1.7.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,13 +16,32 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.6.3' );
+define( 'RANKI_VERSION',    '1.7.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Load translations.
 add_action( 'init', function () {
 	load_plugin_textdomain( 'ranki-publisher', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+} );
+
+// Enqueue lead + call tracker on all public pages.
+add_action( 'wp_enqueue_scripts', function () {
+	$key = get_option( RANKI_OPTION_KEY, '' );
+	if ( ! $key ) {
+		return;
+	}
+	wp_enqueue_script(
+		'ranki-tracker',
+		plugin_dir_url( __FILE__ ) . 'ranki-tracker.js',
+		array(),
+		RANKI_VERSION,
+		true
+	);
+	wp_localize_script( 'ranki-tracker', 'rankiTracker', array(
+		'eventUrl' => rest_url( 'ranki/v1/event' ),
+		'nonce'    => wp_create_nonce( 'ranki_tracker' ),
+	) );
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -306,6 +325,11 @@ add_action( 'rest_api_init', function () {
 		'methods'             => 'POST',
 		'callback'            => 'ranki_handle_set_schema',
 		'permission_callback' => 'ranki_check_auth',
+	) );
+	register_rest_route( 'ranki/v1', '/event', array(
+		'methods'             => 'POST',
+		'callback'            => 'ranki_handle_event',
+		'permission_callback' => '__return_true',
 	) );
 } );
 
@@ -812,6 +836,62 @@ function ranki_handle_set_schema( WP_REST_Request $request ) {
 		'ok'      => true,
 		'post_id' => $post_id,
 	) );
+}
+
+/**
+ * REST callback: receive a browser-side conversion event (form lead or phone click)
+ * and forward it to the Ranki backend for storage.
+ *
+ * Authenticated by nonce rather than X-Ranki-Key because this endpoint is
+ * called from visitor browsers, not the Ranki server.
+ *
+ * @param WP_REST_Request $request REST request object.
+ * @return WP_REST_Response
+ */
+function ranki_handle_event( WP_REST_Request $request ) {
+	$params     = $request->get_json_params();
+	$nonce      = sanitize_text_field( $params['nonce'] ?? '' );
+	$event_type = sanitize_text_field( $params['type'] ?? '' );
+	$page_url   = esc_url_raw( $params['page_url'] ?? '' );
+	$form_type  = sanitize_text_field( $params['form_type'] ?? '' );
+	$phone      = sanitize_text_field( $params['phone_number'] ?? '' );
+	$timestamp  = sanitize_text_field( $params['timestamp'] ?? '' );
+
+	if ( ! wp_verify_nonce( $nonce, 'ranki_tracker' ) ) {
+		return rest_ensure_response( array( 'ok' => false ) );
+	}
+
+	if ( ! in_array( $event_type, array( 'form_lead', 'phone_click' ), true ) ) {
+		return rest_ensure_response( array( 'ok' => false ) );
+	}
+
+	$key = get_option( RANKI_OPTION_KEY, '' );
+	if ( ! $key ) {
+		return rest_ensure_response( array( 'ok' => false ) );
+	}
+
+	// Fire-and-forget — blocking=false so the visitor's request returns immediately.
+	wp_remote_post(
+		RANKI_API_BASE . '/wp-sync/event',
+		array(
+			'timeout'   => 5,
+			'sslverify' => true,
+			'blocking'  => false,
+			'headers'   => array(
+				'Content-Type' => 'application/json',
+				'X-Ranki-Key'  => $key,
+			),
+			'body'      => wp_json_encode( array(
+				'type'         => $event_type,
+				'page_url'     => $page_url,
+				'form_type'    => $form_type ?: null,
+				'phone_number' => $phone ?: null,
+				'timestamp'    => $timestamp,
+			) ),
+		)
+	);
+
+	return rest_ensure_response( array( 'ok' => true ) );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
