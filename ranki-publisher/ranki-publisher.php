@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.0
+ * Version:           1.7.1
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.0' );
+define( 'RANKI_VERSION',    '1.7.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -751,9 +751,11 @@ function ranki_purge_cache( int $post_id, string $post_url ): void {
 	// Cloudflare (via Cloudflare plugin)
 	do_action( 'cloudflare_purge_by_url', array( $post_url ) );
 
-	// Flush WordPress object cache and rewrite rules so the permalink resolves
+	// Flush WordPress object cache and rewrite rules so the permalink resolves.
+	// Hard flush (true) rewrites .htaccess — needed for non-Latin slugs (Hebrew, Arabic)
+	// where a soft flush leaves stale rewrite rules and the URL redirects to the homepage.
 	wp_cache_flush();
-	flush_rewrite_rules( false );
+	flush_rewrite_rules( true );
 }
 
 /**

@@ -1,7 +1,7 @@
 # Ranki WordPress Plugin — Handover
 
 ## The 30-second version
-Single-file PHP WordPress plugin. Installed on every client's WP site. Uses a **pull-queue** design: WP polls Ranki every 5 minutes for jobs instead of accepting inbound requests. Handles publish, update, image upload, and health checks. Auto-updates itself.
+Single-file PHP WordPress plugin, currently **v1.6.1**. Installed on every client's WP site. Uses a **pull-queue** design: WP polls Ranki every 5 minutes for jobs instead of accepting inbound requests. Handles publish, update, image upload, and health checks. Auto-updates itself. Submitted to the official WordPress.org plugin directory in April 2026.
 
 ## The 5 things you must know
 
@@ -47,6 +47,7 @@ Everything lives in `ranki-publisher/ranki-publisher.php`. Search by function na
 ## Distribution & updates
 - Plugin is distributed as `ranki-publisher.zip` — uploaded manually to each client site, or pushed via auto-update
 - Auto-update works by bumping the version in the plugin header and updating the response at `https://ranki.com.au/api/plugin/info`
+- Plugin has also been submitted to the **WordPress.org plugin directory** (April 2026) — if/when approved, clients can install directly from WP admin search
 - Always test a new version on ONE client site before rolling out to all
 
 ## First day checklist
