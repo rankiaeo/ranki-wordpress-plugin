@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.1
+ * Version:           1.7.2
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.1' );
+define( 'RANKI_VERSION',    '1.7.2' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -912,8 +912,31 @@ add_action( 'wp_head', function () {
 		return;
 	}
 
+	$decoded = json_decode( $schema, true );
+	if ( ! is_array( $decoded ) ) {
+		return;
+	}
+
+	// If a dedicated SEO plugin already builds the page schema, don't emit a
+	// competing graph. Keep only FAQPage (which those plugins don't generate and
+	// which still feeds AI engines) and let the SEO plugin own everything else.
+	$seo_plugin_active = defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' )
+		|| defined( 'WPSEO_VERSION' ) || class_exists( 'WPSEO_Frontend' );
+	if ( $seo_plugin_active && isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
+		$faq_nodes = array_values( array_filter(
+			$decoded['@graph'],
+			function ( $node ) {
+				return is_array( $node ) && isset( $node['@type'] ) && 'FAQPage' === $node['@type'];
+			}
+		) );
+		if ( empty( $faq_nodes ) ) {
+			return;
+		}
+		$decoded['@graph'] = $faq_nodes;
+	}
+
 	// Re-encode through PHP's JSON encoder to neutralise any injection attempts.
-	$safe = wp_json_encode( json_decode( $schema, true ) );
+	$safe = wp_json_encode( $decoded );
 	if ( ! $safe || 'null' === $safe ) {
 		return;
 	}
