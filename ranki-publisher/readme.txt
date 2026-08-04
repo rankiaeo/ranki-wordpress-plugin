@@ -3,7 +3,7 @@ Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 6.9
-Stable tag: 1.6.0
+Stable tag: 1.7.4
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -98,6 +98,29 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 
 == Changelog ==
 
+= 1.7.4 =
+* Removed an unneeded translation-loading call (not required for directory-hosted plugins since WP 4.6).
+
+= 1.7.3 =
+* Featured image upload failures (host disk quota, permissions) are now reported back to Ranki instead of silently publishing the post without an image.
+
+= 1.7.2 =
+* One-click auto-update is now active — new plugin versions appear in the standard WordPress update notice, no more manual zip uploads.
+* Schema now defers to Rank Math or Yoast when present (keeps FAQ schema, avoids duplicate structured data).
+* Removed self-reported review stars from post schema (ineligible in Google, avoids manual-action risk).
+
+= 1.7.1 =
+* Fixed Hebrew/Arabic post URLs redirecting to homepage — rewrite rules now hard-flushed after publish.
+
+= 1.7.0 =
+* Lead and call tracking: form submissions (CF7, WPForms, Gravity Forms, Elementor, HTML) and phone link clicks are now captured automatically and shown in the Ranki dashboard under Leads & Calls.
+* No configuration needed - tracking activates as soon as this update is installed.
+
+= 1.6.1 =
+* Fixed API base URL — pull-queue poll was hitting the wrong path (missing /api prefix).
+  Queue jobs now process correctly on all WordPress hosts.
+* Bumped tested-up-to to WordPress 6.9.
+
 = 1.6.0 =
 * Added update-content endpoint for refreshing existing post content.
 * Added direct endpoint fallback for hosts that block REST API calls.
@@ -128,5 +151,5 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 
 == Upgrade Notice ==
 
-= 1.6.0 =
-Recommended update — adds content update endpoint, improved image validation, and smarter category matching.
+= 1.7.4 =
+Recommended update, surfaces featured image upload failures instead of silently dropping them, plus a minor cleanup.
