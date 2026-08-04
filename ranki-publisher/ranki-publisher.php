@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.2
+ * Version:           1.7.3
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.2' );
+define( 'RANKI_VERSION',    '1.7.3' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -249,7 +249,9 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
 			} else {
 				$data = $result->get_data();
-				ranki_report_job_done( $api_base, $key, $job_id, true, $data['post_id'] ?? 0, $data['post_url'] ?? '' );
+				// Job still succeeded (post published) even if the image failed — pass
+				// media_error through so Ranki can surface it, without failing the job.
+				ranki_report_job_done( $api_base, $key, $job_id, true, $data['post_id'] ?? 0, $data['post_url'] ?? '', $data['media_error'] ?? '' );
 			}
 		}
 	} catch ( Exception $e ) {
@@ -534,8 +536,9 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 	}
 
 	// ── 1. Upload featured image ──────────────────────────────────────────────
-	$media_id  = 0;
-	$media_url = '';
+	$media_id    = 0;
+	$media_url   = '';
+	$media_error = '';
 	if ( $image_b64 ) {
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
 		$image_bytes = base64_decode( $image_b64, true );
@@ -567,7 +570,11 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 				$metadata = wp_generate_attachment_metadata( $media_id, $upload['file'] );
 				wp_update_attachment_metadata( $media_id, $metadata );
 				update_post_meta( $media_id, '_wp_attachment_image_alt', $image_alt );
+			} else {
+				$media_error = 'Image upload failed: ' . $upload['error'];
 			}
+		} else {
+			$media_error = 'Image data could not be decoded (invalid base64)';
 		}
 	}
 
@@ -700,12 +707,13 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 	ranki_purge_cache( $post_id, $post_url );
 
 	return rest_ensure_response( array(
-		'ok'        => true,
-		'post_id'   => $post_id,
-		'post_url'  => $post_url,
-		'media_id'  => $media_id,
-		'media_url' => $media_url,
-		'category'  => $cat_name,
+		'ok'          => true,
+		'post_id'     => $post_id,
+		'post_url'    => $post_url,
+		'media_id'    => $media_id,
+		'media_url'   => $media_url,
+		'media_error' => $media_error,
+		'category'    => $cat_name,
 	) );
 }
 
