@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.4
+ * Version:           1.7.5
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -11,12 +11,12 @@
  * Text Domain:       ranki-publisher
  * Requires at least: 5.6
  * Requires PHP:      7.4
- * Tested up to:      6.9
+ * Tested up to:      7.0
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.4' );
+define( 'RANKI_VERSION',    '1.7.5' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -947,93 +947,3 @@ add_action( 'wp_head', function () {
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- safe: output is wp_json_encode of decoded JSON
 	echo '<script type="application/ld+json">' . $safe . '</script>' . "\n";
 } );
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Self-hosted auto-update — wires the plugin into WordPress's native update
-// system so a new version shows the standard "update available" notice and can
-// be installed in one click (or via WP's per-plugin auto-update toggle).
-// Reads version + download zip from ranki.com.au/api/plugin/info.
-// ─────────────────────────────────────────────────────────────────────────────
-define( 'RANKI_UPDATE_URL', 'https://ranki.com.au/api/plugin/info' );
-
-function ranki_fetch_update_info() {
-	$cached = get_transient( 'ranki_update_info' );
-	if ( false !== $cached ) {
-		return $cached;
-	}
-	$response = wp_remote_get( RANKI_UPDATE_URL, array( 'timeout' => 15 ) );
-	if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-		return false;
-	}
-	$info = json_decode( wp_remote_retrieve_body( $response ), true );
-	if ( ! is_array( $info ) || empty( $info['version'] ) || empty( $info['download_url'] ) ) {
-		return false;
-	}
-	set_transient( 'ranki_update_info', $info, 6 * HOUR_IN_SECONDS );
-	return $info;
-}
-
-add_filter( 'pre_set_site_transient_update_plugins', function ( $transient ) {
-	if ( ! is_object( $transient ) ) {
-		return $transient;
-	}
-	$info = ranki_fetch_update_info();
-	if ( ! $info ) {
-		return $transient;
-	}
-	$basename = plugin_basename( __FILE__ );
-	$slug     = dirname( $basename );
-	if ( version_compare( RANKI_VERSION, $info['version'], '<' ) ) {
-		$transient->response[ $basename ] = (object) array(
-			'slug'        => $slug,
-			'plugin'      => $basename,
-			'new_version' => $info['version'],
-			'package'     => $info['download_url'],
-			'url'         => 'https://ranki.com.au',
-			'tested'      => isset( $info['tested'] ) ? $info['tested'] : '',
-			'requires'    => isset( $info['requires'] ) ? $info['requires'] : '',
-		);
-	} else {
-		$transient->no_update[ $basename ] = (object) array(
-			'slug'        => $slug,
-			'plugin'      => $basename,
-			'new_version' => RANKI_VERSION,
-			'package'     => '',
-			'url'         => 'https://ranki.com.au',
-		);
-	}
-	return $transient;
-} );
-
-add_filter( 'plugins_api', function ( $result, $action, $args ) {
-	if ( 'plugin_information' !== $action || empty( $args->slug ) ) {
-		return $result;
-	}
-	if ( dirname( plugin_basename( __FILE__ ) ) !== $args->slug ) {
-		return $result;
-	}
-	$info = ranki_fetch_update_info();
-	if ( ! $info ) {
-		return $result;
-	}
-	return (object) array(
-		'name'          => 'Ranki Publisher',
-		'slug'          => $args->slug,
-		'version'       => $info['version'],
-		'author'        => 'Ranki',
-		'homepage'      => 'https://ranki.com.au',
-		'download_link' => $info['download_url'],
-		'requires'      => isset( $info['requires'] ) ? $info['requires'] : '',
-		'tested'        => isset( $info['tested'] ) ? $info['tested'] : '',
-		'sections'      => array(
-			'changelog' => isset( $info['changelog'] ) ? nl2br( esc_html( $info['changelog'] ) ) : '',
-		),
-	);
-}, 10, 3 );
-
-// Drop the cached version check right after an update so the notice clears.
-add_action( 'upgrader_process_complete', function ( $upgrader, $options ) {
-	if ( isset( $options['action'], $options['type'] ) && 'update' === $options['action'] && 'plugin' === $options['type'] ) {
-		delete_transient( 'ranki_update_info' );
-	}
-}, 10, 2 );

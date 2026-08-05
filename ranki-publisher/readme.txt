@@ -2,8 +2,8 @@
 Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
-Tested up to: 6.9
-Stable tag: 1.7.4
+Tested up to: 7.0
+Stable tag: 1.7.5
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -97,6 +97,9 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 1. The Settings page showing your Site URL and Secret Key, ready to copy into Ranki.
 
 == Changelog ==
+
+= 1.7.5 =
+* Removed the plugin's own self-update checker. WordPress.org does not permit directory-hosted plugins to run a custom updater alongside its own update system. Updates now come through the standard WordPress.org update notice once this version is live in the directory.
 
 = 1.7.4 =
 * Removed an unneeded translation-loading call (not required for directory-hosted plugins since WP 4.6).
