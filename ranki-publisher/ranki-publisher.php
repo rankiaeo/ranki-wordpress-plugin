@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.5
+ * Version:           1.7.6
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.5' );
+define( 'RANKI_VERSION',    '1.7.6' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -426,6 +426,25 @@ function ranki_check_auth( WP_REST_Request $request ) {
 }
 
 /**
+ * Verify a byte string is actually one of the allowed image types by reading
+ * its real content (not the filename or any client-supplied claim), before
+ * anything is written to disk. wp_upload_bits() does not do this itself.
+ *
+ * @param string $bytes Raw file content.
+ * @return bool True if the bytes are a genuine jpeg/png/gif/webp image.
+ */
+function ranki_is_allowed_image( string $bytes ): bool {
+	$tmp = tmpfile();
+	fwrite( $tmp, $bytes );
+	$tmp_meta  = stream_get_meta_data( $tmp );
+	$real_mime = mime_content_type( $tmp_meta['uri'] );
+	fclose( $tmp );
+
+	$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+	return in_array( $real_mime, $allowed_mimes, true );
+}
+
+/**
  * REST callback: upload an image to the WordPress media library.
  *
  * @param WP_REST_Request $request REST request object.
@@ -445,6 +464,12 @@ function ranki_handle_upload_image( WP_REST_Request $request ) {
 	$image_bytes = base64_decode( $image_b64, true );
 	if ( false === $image_bytes ) {
 		return new WP_Error( 'invalid_image', __( 'Could not decode base64 image', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	// Verify the real file content before it ever touches disk — a filename
+	// alone (e.g. "photo.jpg") proves nothing about what bytes follow it.
+	if ( ! ranki_is_allowed_image( $image_bytes ) ) {
+		return new WP_Error( 'invalid_image', __( 'Image must be jpeg, png, gif or webp', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
 	$upload = wp_upload_bits( $image_name, null, $image_bytes );
@@ -538,15 +563,8 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode
 		$image_bytes = base64_decode( $image_b64, true );
 		if ( false !== $image_bytes ) {
-			// Verify MIME type from actual file bytes before uploading.
-			$tmp      = tmpfile();
-			fwrite( $tmp, $image_bytes );
-			$tmp_meta = stream_get_meta_data( $tmp );
-			$real_mime = mime_content_type( $tmp_meta['uri'] );
-			fclose( $tmp );
-
-			$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
-			if ( ! in_array( $real_mime, $allowed_mimes, true ) ) {
+			// Verify the real file content before it ever touches disk.
+			if ( ! ranki_is_allowed_image( $image_bytes ) ) {
 				return new WP_Error( 'invalid_image', __( 'Image must be jpeg, png, gif or webp', 'ranki-publisher' ), array( 'status' => 400 ) );
 			}
 
@@ -869,6 +887,18 @@ function ranki_handle_event( WP_REST_Request $request ) {
 	if ( ! in_array( $event_type, array( 'form_lead', 'phone_click' ), true ) ) {
 		return rest_ensure_response( array( 'ok' => false ) );
 	}
+
+	// This endpoint is reachable by any visitor and a nonce isn't single-use,
+	// so cap how many events one IP can send in a short window — otherwise a
+	// scraped nonce could be replayed to flood the client's Leads dashboard
+	// with fake entries.
+	$ip           = sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? 'unknown' );
+	$rate_key     = 'ranki_evt_' . md5( $ip );
+	$recent_count = (int) get_transient( $rate_key );
+	if ( $recent_count >= 20 ) {
+		return rest_ensure_response( array( 'ok' => false ) );
+	}
+	set_transient( $rate_key, $recent_count + 1, MINUTE_IN_SECONDS );
 
 	$key = get_option( RANKI_OPTION_KEY, '' );
 	if ( ! $key ) {

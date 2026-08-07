@@ -3,7 +3,7 @@ Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.7.5
+Stable tag: 1.7.6
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -98,6 +98,10 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 
 == Changelog ==
 
+= 1.7.6 =
+* Security hardening: stricter file-content validation on image uploads. Recommended update for all sites.
+* Added rate limiting to the visitor-facing lead tracking endpoint.
+
 = 1.7.5 =
 * Removed the plugin's own self-update checker. WordPress.org does not permit directory-hosted plugins to run a custom updater alongside its own update system. Updates now come through the standard WordPress.org update notice once this version is live in the directory.
 
@@ -154,5 +158,5 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 
 == Upgrade Notice ==
 
-= 1.7.4 =
-Recommended update, surfaces featured image upload failures instead of silently dropping them, plus a minor cleanup.
+= 1.7.6 =
+Security update, please update as soon as possible.
