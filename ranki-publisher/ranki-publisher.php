@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.7.6
+ * Version:           1.8.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.7.6' );
+define( 'RANKI_VERSION',    '1.8.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -328,6 +328,103 @@ add_action( 'rest_api_init', function () {
 		'callback'            => 'ranki_handle_event',
 		'permission_callback' => '__return_true',
 	) );
+	register_rest_route( 'ranki/v1', '/sso-token', array(
+		'methods'             => 'POST',
+		'callback'            => 'ranki_handle_sso_token',
+		'permission_callback' => 'ranki_check_auth',
+	) );
+} );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One-click admin login from the Ranki dashboard.
+//
+// Ranki mints a token over the authenticated REST route, then sends the
+// browser to /?ranki_sso=<token>. The token is single-use, expires in 60
+// seconds, and only ever logs in an existing administrator on this site.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pick the administrator to log in as. Prefers the account whose credentials
+ * Ranki already publishes with, so the audit trail matches the posts.
+ */
+function ranki_sso_target_user() {
+	$stored = (int) get_option( 'ranki_sso_user_id', 0 );
+	if ( $stored ) {
+		$user = get_user_by( 'id', $stored );
+		if ( $user && user_can( $user, 'manage_options' ) ) {
+			return $user;
+		}
+	}
+
+	$admins = get_users( array(
+		'role'    => 'administrator',
+		'number'  => 1,
+		'orderby' => 'ID',
+		'order'   => 'ASC',
+	) );
+
+	return $admins ? $admins[0] : null;
+}
+
+/**
+ * Mint a short-lived single-use login token.
+ */
+function ranki_handle_sso_token( WP_REST_Request $request ) {
+	$user = ranki_sso_target_user();
+	if ( ! $user ) {
+		return new WP_Error( 'ranki_no_admin', __( 'No administrator account found', 'ranki-publisher' ), array( 'status' => 500 ) );
+	}
+
+	$token = bin2hex( random_bytes( 32 ) );
+	set_transient( 'ranki_sso_' . hash( 'sha256', $token ), $user->ID, 60 );
+
+	return rest_ensure_response( array(
+		'ok'         => true,
+		'login_url'  => add_query_arg( 'ranki_sso', $token, home_url( '/' ) ),
+		'expires_in' => 60,
+		'user_login' => $user->user_login,
+	) );
+}
+
+add_action( 'template_redirect', function () {
+	if ( empty( $_GET['ranki_sso'] ) ) {
+		return;
+	}
+
+	$token = sanitize_text_field( wp_unslash( $_GET['ranki_sso'] ) );
+	$key   = 'ranki_sso_' . hash( 'sha256', $token );
+	$user_id = get_transient( $key );
+
+	// Single use — burn it before logging anyone in, so a replayed URL fails
+	// even if the redirect below is interrupted.
+	delete_transient( $key );
+
+	if ( ! $user_id ) {
+		wp_die( esc_html__( 'This Ranki login link has expired. Open it again from your Ranki dashboard.', 'ranki-publisher' ), 403 );
+	}
+
+	$user = get_user_by( 'id', (int) $user_id );
+	if ( ! $user || ! user_can( $user, 'manage_options' ) ) {
+		wp_die( esc_html__( 'This Ranki login link is no longer valid.', 'ranki-publisher' ), 403 );
+	}
+
+	wp_set_current_user( $user->ID );
+	wp_set_auth_cookie( $user->ID, false, is_ssl() );
+
+	// Leave a trail the site owner can see in Settings → Ranki Publisher.
+	$log = get_option( 'ranki_sso_log', array() );
+	if ( ! is_array( $log ) ) {
+		$log = array();
+	}
+	array_unshift( $log, array(
+		'at'   => current_time( 'mysql' ),
+		'user' => $user->user_login,
+		'ip'   => isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '',
+	) );
+	update_option( 'ranki_sso_log', array_slice( $log, 0, 20 ), false );
+
+	wp_safe_redirect( admin_url() );
+	exit;
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -341,7 +438,7 @@ add_action( 'template_redirect', function () {
 	}
 
 	$action  = sanitize_text_field( wp_unslash( $_GET['ranki_action'] ) );
-	$allowed = array( 'publish', 'upload-image', 'ping', 'update-content', 'set-schema' );
+	$allowed = array( 'publish', 'upload-image', 'ping', 'update-content', 'set-schema', 'sso-token' );
 	if ( ! in_array( $action, $allowed, true ) ) {
 		return;
 	}
@@ -359,6 +456,15 @@ add_action( 'template_redirect', function () {
 
 	if ( 'ping' === $action ) {
 		wp_send_json( array( 'ok' => true, 'version' => RANKI_VERSION, 'site' => get_site_url() ) );
+		exit;
+	}
+
+	if ( 'sso-token' === $action ) {
+		$result = ranki_handle_sso_token( new WP_REST_Request( 'POST' ) );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json( array( 'error' => $result->get_error_message() ), 500 );
+		}
+		wp_send_json( $result->get_data() );
 		exit;
 	}
 
