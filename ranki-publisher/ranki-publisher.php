@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.1
+ * Version:           1.8.2
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.1' );
+define( 'RANKI_VERSION',    '1.8.2' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -161,6 +161,37 @@ add_action( 'init', function () {
 	if ( ! wp_next_scheduled( 'ranki_sync_cron' ) ) {
 		wp_schedule_event( time(), 'ranki_every_5min', 'ranki_sync_cron' );
 	}
+} );
+
+/**
+ * Fallback poller for sites where WP-Cron never fires.
+ *
+ * Some hosts disable WP-Cron without providing a replacement, which leaves the
+ * pull queue permanently stalled and the site silently publishing nothing. The
+ * scheduler can be dead while ordinary requests still work fine, so ride on
+ * front-end traffic instead: take a lock, finish the response, then poll. The
+ * visitor waits on nothing, and the lock matches the cron interval so a healthy
+ * site does no meaningful extra work.
+ */
+add_action( 'init', function () {
+	if ( is_admin() || wp_doing_cron() || wp_doing_ajax() ) {
+		return;
+	}
+	if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+		return;
+	}
+	if ( ! get_option( RANKI_OPTION_KEY, '' ) || get_transient( 'ranki_poll_lock' ) ) {
+		return;
+	}
+
+	set_transient( 'ranki_poll_lock', 1, 300 );
+
+	add_action( 'shutdown', function () {
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		}
+		ranki_process_queue();
+	}, 99 );
 } );
 
 /**

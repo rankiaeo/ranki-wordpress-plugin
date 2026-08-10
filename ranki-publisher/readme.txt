@@ -3,7 +3,7 @@ Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.1
+Stable tag: 1.8.2
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -97,6 +97,9 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 1. The Settings page showing your Site URL and Secret Key, ready to copy into Ranki.
 
 == Changelog ==
+
+= 1.8.2 =
+* Publishing no longer stalls on hosts where WordPress's built-in scheduler is disabled. The plugin now also checks for pending jobs during normal site traffic, after the page has finished loading, so visitors notice nothing.
 
 = 1.8.1 =
 * The plugin now reports its version when it checks in with Ranki, so the connection status shown in your Ranki dashboard reflects reality on hosts that block inbound requests.
