@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.0
+ * Version:           1.8.1
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.0' );
+define( 'RANKI_VERSION',    '1.8.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -178,8 +178,9 @@ function ranki_process_queue() {
 			'timeout'   => 15,
 			'sslverify' => true,
 			'headers'   => array(
-				'Accept'      => 'application/json',
-				'X-Ranki-Key' => $key,
+				'Accept'                  => 'application/json',
+				'X-Ranki-Key'             => $key,
+				'X-Ranki-Plugin-Version'  => RANKI_VERSION,
 			),
 		)
 	);

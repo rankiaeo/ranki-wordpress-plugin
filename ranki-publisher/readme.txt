@@ -3,7 +3,7 @@ Contributors: rankiaeo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -97,6 +97,9 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 1. The Settings page showing your Site URL and Secret Key, ready to copy into Ranki.
 
 == Changelog ==
+
+= 1.8.1 =
+* The plugin now reports its version when it checks in with Ranki, so the connection status shown in your Ranki dashboard reflects reality on hosts that block inbound requests.
 
 = 1.8.0 =
 * Site owners can now open their WordPress admin directly from their Ranki dashboard, without re-entering a password. Logins are single-use, expire after 60 seconds, and are recorded under Settings → Ranki Publisher.
