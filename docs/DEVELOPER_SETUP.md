@@ -1,18 +1,22 @@
 # Ranki WordPress Plugin — Developer Setup
 
 ## Tech stack
-- **Language:** PHP (uses PHP 8.0+ features — union types)
-- **WordPress:** Tested on 5.6+
+- **Language:** PHP (requires PHP 7.4+, uses 8.0 features such as union types in newer helpers)
+- **WordPress:** Requires 5.6+, tested up to 7.0
 - **Dependencies:** None (no Composer, no npm)
-- **Current version:** 1.6.0
-- **Distribution:** `ranki-publisher.zip`
+- **Current version:** 1.8.2
+- **Distribution:** WordPress.org plugin directory (primary), `ranki-publisher.zip` (manual installs)
 
 ## Repo structure
 ```
-ranki-publisher/            # The plugin itself (this is what gets zipped)
-  └── ranki-publisher.php   # Single-file plugin, 727 lines
-ranki-publisher.zip         # Packaged for upload to client WordPress sites
+ranki-publisher/            # The plugin itself (this is what gets zipped / committed to SVN)
+  ├── ranki-publisher.php   # Single-file plugin, ~1,100 lines
+  ├── ranki-tracker.js      # Front-end lead + call tracking script
+  └── readme.txt            # WordPress.org readme, Stable tag lives here
+ranki-publisher.zip         # Packaged for manual upload to client WordPress sites
 ```
+
+The WordPress.org SVN checkout is a **separate folder**, not part of this repo: `ranki-workspace/ranki-publisher-svn/` (`trunk/`, `tags/`, `assets/`).
 
 ## Development
 
@@ -32,16 +36,33 @@ rm ranki-publisher.zip
 zip -r ranki-publisher.zip ranki-publisher/
 ```
 
-Upload the new zip to client sites via WP Admin → Plugins → Add New → Upload. Or use the auto-update mechanism (bump the version number in the plugin header, host the new zip at the URL the plugin checks).
+Upload the new zip to client sites via WP Admin → Plugins → Add New → Upload. This is only for sites installed before the directory listing. Everyone else updates from WordPress.org.
+
+### Releasing to WordPress.org
+The plugin is live on the directory, so a release is an SVN commit:
+
+1. Copy the updated `ranki-publisher/` files into `ranki-publisher-svn/trunk/`
+2. Commit trunk
+3. Copy trunk into `ranki-publisher-svn/tags/<version>/` and commit that too
+
+WordPress serves the version named by `Stable tag:` in `readme.txt`, so a release that doesn't update that line ships nothing to anybody.
+
+**There is no self-update code in the plugin.** It was removed in 1.7.5 because WordPress.org does not permit a directory-hosted plugin to run its own update checker. Do not add it back.
 
 ### Version bumping
-Edit the plugin header in `ranki-publisher/ranki-publisher.php`:
+Three places, all of them required:
+
+1. The plugin header in `ranki-publisher/ranki-publisher.php`:
 ```php
 /**
  * Plugin Name: Ranki Publisher
- * Version: 1.6.0    ← bump this
+ * Version: 1.8.2    ← bump this
  */
 ```
+2. The `RANKI_VERSION` constant just below it
+3. `Stable tag:` in `ranki-publisher/readme.txt`
+
+Also update `CURRENT_PLUGIN_VERSION` in `ranki/src/lib/pluginVersion.ts` in the frontend repo. That is what the admin clients list compares each site's reported version against to show the Plugin health column, and it is kept in sync by hand.
 
 ## No environment variables
 The plugin has no env vars. All config is either:
@@ -52,8 +73,9 @@ The plugin has no env vars. All config is either:
 ## External services it calls
 | Service | Purpose |
 |---------|---------|
-| `https://ranki-backend-production.up.railway.app` | Pull-queue polling — asks for jobs every 5 min |
-| `https://ranki.com.au/api/plugin/info` | Auto-update checks — sees if a newer plugin version exists |
+| `https://ranki-backend-production.up.railway.app` | Pull-queue polling: asks for jobs every 5 min, and reports its own version in the `X-Ranki-Plugin-Version` header |
+
+That's the only outbound call now. The plugin used to also hit `https://ranki.com.au/api/plugin/info` for update checks, but that was removed in 1.7.5. The frontend route still exists and still serves version info, it just no longer has a caller in the plugin.
 
 ## Authentication
 The `ranki_secret_key` is generated once on plugin activation. The same key must be entered in the Ranki admin dashboard to link a client site. Verification uses `hash_equals()` (timing-safe comparison).
