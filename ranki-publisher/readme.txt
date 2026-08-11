@@ -1,5 +1,5 @@
 === Ranki Publisher ===
-Contributors: rankiaeo
+Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
@@ -8,11 +8,11 @@ Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Connects your WordPress site to Ranki for automated AI SEO content publishing — posts, images, and SEO metadata, hands-free.
+Connects your WordPress site to Ranki for automated AI SEO content publishing: posts, images, and SEO metadata, hands-free.
 
 == Description ==
 
-**Ranki Publisher** is the WordPress bridge for the [Ranki](https://ranki.com.au) AI SEO platform. Once installed, Ranki can automatically publish SEO-optimised blog posts to your WordPress site — including the featured image, focus keyword, meta title, meta description, and schema JSON-LD markup — without any manual work.
+**Ranki Publisher** is the WordPress bridge for the [Ranki](https://ranki.com.au) AI SEO platform. Once installed, Ranki can automatically publish SEO-optimised blog posts to your WordPress site, including the featured image, focus keyword, meta title, meta description, and schema JSON-LD markup, without any manual work.
 
 **How it works**
 
@@ -23,12 +23,12 @@ Connects your WordPress site to Ranki for automated AI SEO content publishing �
 
 **Key features**
 
-* **Pull-queue cron** — WordPress polls Ranki every 5 minutes for pending jobs. All connections are outbound from your server, which bypasses hosting firewalls that block inbound REST API calls (SiteGround, Cloudflare, etc.).
-* **REST API endpoint** — for hosts that allow inbound REST calls, Ranki can push content directly via `/wp-json/ranki/v1/publish`.
-* **Featured image upload** — images are uploaded to your media library and set as the post featured image automatically.
-* **SEO plugin support** — writes focus keyword, meta title, and meta description for both Rank Math and Yoast SEO.
-* **Smart category assignment** — matches or creates a post category based on the focus keyword.
-* **Schema JSON-LD** — injects structured data markup into `<head>` for posts that include it.
+* **Pull-queue cron**: WordPress polls Ranki every 5 minutes for pending jobs. All connections are outbound from your server, which bypasses hosting firewalls that block inbound REST API calls (SiteGround, Cloudflare, etc.).
+* **REST API endpoint**: for hosts that allow inbound REST calls, Ranki can push content directly via `/wp-json/ranki/v1/publish`.
+* **Featured image upload**: images are uploaded to your media library and set as the post featured image automatically.
+* **SEO plugin support**: writes focus keyword, meta title, and meta description for both Rank Math and Yoast SEO.
+* **Smart category assignment**: matches or creates a post category based on the focus keyword.
+* **Schema JSON-LD**: injects structured data markup into `<head>` for posts that include it.
 
 **Requirements**
 
@@ -60,7 +60,7 @@ Yes. This plugin is a connector for the [Ranki](https://ranki.com.au) AI SEO pla
 
 = Is my secret key stored securely? =
 
-Your secret key is stored in your WordPress database (wp_options table) using WordPress's standard `update_option()` function — the same way WordPress stores all plugin settings. It is never exposed in page source, logs, or URLs.
+Your secret key is stored in your WordPress database (wp_options table) using WordPress's standard `update_option()` function, the same way WordPress stores all plugin settings. It is never exposed in page source, logs, or URLs.
 
 = What happens if my hosting blocks external REST API requests? =
 
@@ -84,8 +84,8 @@ Go to **Settings → Ranki Publisher** and click **Regenerate Secret Key**. Then
 
 This plugin communicates with the **Ranki** backend service to function. Specifically:
 
-* **Polling for jobs** — every 5 minutes, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/poll` to check for pending content publishing jobs. The request includes your site's secret key in a header (never in the URL).
-* **Reporting job results** — after processing each job, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/done` to report success or failure, including the published post ID and URL.
+* **Polling for jobs**: every 5 minutes, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/poll` to check for pending content publishing jobs. The request includes your site's secret key in a header (never in the URL).
+* **Reporting job results**: after processing each job, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/done` to report success or failure, including the published post ID and URL.
 
 **Data transmitted:** your site's secret key (as an authentication header), the result of each publishing job (post ID, post URL, error message if applicable). No personal user data is transmitted.
 
@@ -121,19 +121,19 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 * Featured image upload failures (host disk quota, permissions) are now reported back to Ranki instead of silently publishing the post without an image.
 
 = 1.7.2 =
-* One-click auto-update is now active — new plugin versions appear in the standard WordPress update notice, no more manual zip uploads.
+* One-click auto-update is now active, new plugin versions appear in the standard WordPress update notice, no more manual zip uploads.
 * Schema now defers to Rank Math or Yoast when present (keeps FAQ schema, avoids duplicate structured data).
 * Removed self-reported review stars from post schema (ineligible in Google, avoids manual-action risk).
 
 = 1.7.1 =
-* Fixed Hebrew/Arabic post URLs redirecting to homepage — rewrite rules now hard-flushed after publish.
+* Fixed Hebrew/Arabic post URLs redirecting to homepage: rewrite rules now hard-flushed after publish.
 
 = 1.7.0 =
 * Lead and call tracking: form submissions (CF7, WPForms, Gravity Forms, Elementor, HTML) and phone link clicks are now captured automatically and shown in the Ranki dashboard under Leads & Calls.
 * No configuration needed - tracking activates as soon as this update is installed.
 
 = 1.6.1 =
-* Fixed API base URL — pull-queue poll was hitting the wrong path (missing /api prefix).
+* Fixed API base URL: pull-queue poll was hitting the wrong path (missing /api prefix).
   Queue jobs now process correctly on all WordPress hosts.
 * Bumped tested-up-to to WordPress 6.9.
 
