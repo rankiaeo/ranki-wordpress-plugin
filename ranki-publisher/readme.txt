@@ -92,10 +92,6 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 * Ranki Terms of Service: https://ranki.com.au/terms
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
-== Screenshots ==
-
-1. The Settings page showing your Site URL and Secret Key, ready to copy into Ranki.
-
 == Changelog ==
 
 = 1.8.2 =
