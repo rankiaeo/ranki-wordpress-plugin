@@ -2,12 +2,15 @@
 
 ## What this repo is
 
-The WordPress plugin installed on every client's WordPress site. It connects their site to Ranki so posts can be published automatically. Current version: **1.6.3**.
+The WordPress plugin installed on every client's WordPress site. It connects their site to Ranki so posts can be published automatically. Current version: **1.8.2**.
 
 **Owner:** Daniel Dalal, CEO Theme Press, Australia
-**Single file:** `ranki-publisher/ranki-publisher.php` (~727 lines — read it end to end before touching anything)
-**Distribution:** `ranki-publisher.zip` — uploaded manually to client WP sites, or auto-updated
-**Plugin directory:** Submitted to WordPress.org in April 2026 (not yet approved)
+**Single file:** `ranki-publisher/ranki-publisher.php` (~1,117 lines, read it end to end before touching anything)
+**Distribution:** Live on the WordPress.org plugin directory. Updates ship via SVN commit, not zip uploads.
+**WP.org username:** `rankiseo` (this is the `Contributors:` value in readme.txt and the SVN commit author)
+**SVN checkout:** `ranki-workspace/ranki-publisher-svn/` (`trunk/`, `tags/`, `assets/`). Not part of this git repo.
+
+The `docs/` folder in this repo is the current source of truth. `docs/HANDOVER.md` has the most detail.
 
 ---
 
@@ -30,7 +33,9 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 - **JSON-LD schema goes in `<head>` via `wp_head` hook**, not in post body. WordPress's `wp_kses_post()` strips `<script>` tags from post content. Schema is stored in `_ranki_schema_jsonld` post meta and output via the hook. Correct approach — do not move it into the post body.
 - **Two endpoint paths must both work.** REST (`/wp-json/ranki/v1/publish`) is preferred. Query-string (`/?ranki_action=publish`) is the fallback for hosts that block `/wp-json/`. Both execute the same handler. If you change logic, change it once in the shared handler function.
 - **Never change the pull interval without telling Daniel.** The 5-min cron is relied on by Railway's monitoring.
-- **Version bump requires updating both** the plugin header AND `RANKI_VERSION` constant at the top of the file. Also update `ranki.com.au/api/plugin/info` (in the `ranki` frontend repo) so auto-update works.
+- **Version bump requires updating three things:** the plugin header Version field, the `RANKI_VERSION` constant, and `Stable tag:` in `readme.txt`. All three must match or WP.org serves the wrong version.
+- **Never add a self-update checker.** One existed until 1.7.5 and was removed because WordPress.org does not permit a directory-hosted plugin to run its own updater alongside WP's native one. The `site_transient_update_plugins` / `pre_set_site_transient_update_plugins` hooks are gone. Do not bring them back. `ranki.com.au/api/plugin/info` is no longer part of the update path.
+- **Ranki cannot push plugin updates to clients.** Sites installed from the directory update through the standard WordPress update notice. Sites installed before the listing went live need a manual zip upload.
 
 ---
 
@@ -48,7 +53,7 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `RANKI_VERSION` | `1.6.3` | Plugin version — bump on every release |
+| `RANKI_VERSION` | `1.8.2` | Plugin version, bump on every release |
 | `RANKI_OPTION_KEY` | `ranki_secret_key` | wp_options key for the secret |
 | `RANKI_API_BASE` | `https://ranki-backend-production.up.railway.app/api` | Backend URL — update if Railway URL changes |
 
@@ -66,16 +71,38 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 
 ---
 
-## Distribution and auto-update
+## Distribution and releasing
 
-- Plugin is distributed as `ranki-publisher.zip`
-- Auto-update: plugin checks `ranki.com.au/api/plugin/info` for new versions
-- To release a new version:
-  1. Bump `RANKI_VERSION` constant + plugin header Version field
-  2. Zip the `ranki-publisher/` folder → `ranki-publisher.zip`
-  3. Update `src/app/api/plugin/info/route.ts` in the `ranki` frontend repo with the new version + download URL
-  4. Test on ONE client site before rolling out
-- WordPress.org submission (April 2026): if approved, clients can install directly from WP admin search
+The plugin is live on the WordPress.org directory. Published tags: 1.7.5 through 1.8.2. A release is an SVN commit, not a zip upload.
+
+To release a new version:
+1. Bump `RANKI_VERSION`, the plugin header Version field, and `Stable tag:` in `readme.txt`. All three must match.
+2. Add a `== Changelog ==` entry in `readme.txt`.
+3. Test on ONE client site before releasing.
+4. Copy `ranki-publisher/` files into `ranki-publisher-svn/trunk/` and commit.
+5. Copy trunk into `ranki-publisher-svn/tags/<version>/` and commit that too.
+
+Clients installed from the directory update through the standard WordPress update notice. Sites installed before the listing went live still need a manual zip upload from `ranki-publisher.zip`.
+
+### Directory assets (banner, icon, screenshots)
+
+Assets live in `ranki-publisher-svn/assets/` at the SVN root, a sibling of `trunk/` and `tags/`, not inside the plugin folder. Committing them needs no version bump and no tag; the listing page updates within minutes.
+
+| File | Purpose |
+|------|---------|
+| `banner-1544x500.png` / `banner-772x250.png` | Header image on the listing page |
+| `icon-256x256.png` / `icon-128x128.png` | Icon in search results and wp-admin |
+| `screenshot-N.png` | Numbered to match the `== Screenshots ==` list in readme.txt |
+
+Banner and icon are generated from `assets-src/banner.html` and `assets-src/icon.html` in this repo, rendered with headless Chrome:
+
+```
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu \
+  --hide-scrollbars --force-device-scale-factor=1 --virtual-time-budget=12000 \
+  --window-size=1544,500 --screenshot=banner-1544x500.png "file://$PWD/banner.html"
+```
+
+Then downscale with `sips -z 250 772`. Edit the HTML, re-render, copy the PNGs into the SVN `assets/` folder.
 
 ---
 
