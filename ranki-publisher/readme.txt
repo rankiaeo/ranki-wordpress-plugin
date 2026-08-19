@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.2
+Stable tag: 1.8.3
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -93,6 +93,10 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.8.3 =
+* Fixed form-lead tracking being silently dropped on sites running JS optimization plugins (SiteGround Optimizer, WP Rocket, Autoptimize). The lead/call tracker now loads inline instead of as a separate script file, so it can no longer be combined away or deferred out of the page.
+* Added a one-time job to recover historical Elementor form submissions that were missed before this fix, so past leads still count.
 
 = 1.8.2 =
 * Publishing no longer stalls on hosts where WordPress's built-in scheduler is disabled. The plugin now also checks for pending jobs during normal site traffic, after the page has finished loading, so visitors notice nothing.

@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.2
+ * Version:           1.8.3
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.2' );
+define( 'RANKI_VERSION',    '1.8.3' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -26,17 +26,18 @@ add_action( 'wp_enqueue_scripts', function () {
 	if ( ! $key ) {
 		return;
 	}
-	wp_enqueue_script(
-		'ranki-tracker',
-		plugin_dir_url( __FILE__ ) . 'ranki-tracker.js',
-		array(),
-		RANKI_VERSION,
-		true
-	);
+	// Registered with no src, then attached as inline JS below. JS-optimizer
+	// plugins (SiteGround Optimizer, WP Rocket, Autoptimize) combine/minify
+	// external <script src> files and can silently drop this one from the
+	// rendered page, which zeroes out form-lead tracking on affected sites.
+	// Inline output isn't touched by that class of optimization.
+	wp_register_script( 'ranki-tracker', false, array(), RANKI_VERSION, true );
+	wp_enqueue_script( 'ranki-tracker' );
 	wp_localize_script( 'ranki-tracker', 'rankiTracker', array(
 		'eventUrl' => rest_url( 'ranki/v1/event' ),
 		'nonce'    => wp_create_nonce( 'ranki_tracker' ),
 	) );
+	wp_add_inline_script( 'ranki-tracker', file_get_contents( plugin_dir_path( __FILE__ ) . 'ranki-tracker.js' ) );
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +271,10 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 			} else {
 				ranki_report_job_done( $api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '' );
 			}
+		} elseif ( 'export-leads' === $action ) {
+			// Reports its own job status to /wp-sync/leads-export (which stashes a
+			// count/sample summary on the job row), not via ranki_report_job_done.
+			ranki_handle_export_leads( $payload, $job_id, $api_base, $key );
 		} else {
 			$result = ranki_handle_publish( $request );
 			if ( is_wp_error( $result ) ) {
@@ -1009,6 +1014,66 @@ function ranki_handle_set_schema( WP_REST_Request $request ) {
  * @param WP_REST_Request $request REST request object.
  * @return WP_REST_Response
  */
+/**
+ * Recover historical form submissions from a client's own form-plugin database
+ * and report them back to Ranki so past leads that pre-date (or were missed by)
+ * the JS tracker still count. Only Elementor Pro's submissions table is read
+ * today, since it's a persistent DB table on the site itself, not something
+ * Ranki can reconstruct after the fact.
+ *
+ * dry_run just probes the table (row count + a few raw sample rows) so Ranki
+ * can confirm the count and column names match before requesting a real pull.
+ */
+function ranki_handle_export_leads( array $payload, string $job_id, string $api_base, string $key ) {
+	global $wpdb;
+
+	$dry_run = ! empty( $payload['dry_run'] );
+	$table   = $wpdb->prefix . 'e_submissions';
+	$result  = array(
+		'job_id'  => $job_id,
+		'dry_run' => $dry_run,
+		'count'   => 0,
+		'sample'  => array(),
+		'leads'   => array(),
+	);
+
+	if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
+		$result['count'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+		if ( $dry_run ) {
+			$result['sample'] = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY id DESC LIMIT 3", ARRAY_A );
+		} else {
+			$rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY id ASC", ARRAY_A );
+			foreach ( $rows as $row ) {
+				$created = $row['created_at'] ?? $row['date'] ?? $row['submitted_at'] ?? null;
+				if ( ! $created ) {
+					continue;
+				}
+				$result['leads'][] = array(
+					'occurred_at' => gmdate( 'c', strtotime( $created ) ),
+					'page_url'    => $row['referer'] ?? $row['current_url'] ?? $row['page_url'] ?? '',
+					'form_type'   => 'elementor',
+				);
+			}
+		}
+	} else {
+		$result['note'] = 'no e_submissions table found';
+	}
+
+	wp_remote_post(
+		$api_base . '/wp-sync/leads-export',
+		array(
+			'timeout'   => 30,
+			'sslverify' => true,
+			'headers'   => array(
+				'Content-Type' => 'application/json',
+				'X-Ranki-Key'  => $key,
+			),
+			'body'      => wp_json_encode( $result ),
+		)
+	);
+}
+
 function ranki_handle_event( WP_REST_Request $request ) {
 	$params     = $request->get_json_params();
 	$nonce      = sanitize_text_field( $params['nonce'] ?? '' );
