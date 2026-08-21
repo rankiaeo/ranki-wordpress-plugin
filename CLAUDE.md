@@ -53,7 +53,7 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `RANKI_VERSION` | `1.8.2` | Plugin version, bump on every release |
+| `RANKI_VERSION` | `1.8.4` | Plugin version, bump on every release |
 | `RANKI_OPTION_KEY` | `ranki_secret_key` | wp_options key for the secret |
 | `RANKI_API_BASE` | `https://ranki-backend-production.up.railway.app/api` | Backend URL — update if Railway URL changes |
 
@@ -73,7 +73,7 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 
 ## Distribution and releasing
 
-The plugin is live on the WordPress.org directory. Published tags: 1.7.5 through 1.8.2. A release is an SVN commit, not a zip upload.
+The plugin is live on the WordPress.org directory. Published tags: 1.7.5 through 1.8.3. A release is an SVN commit, not a zip upload.
 
 To release a new version:
 1. Bump `RANKI_VERSION`, the plugin header Version field, and `Stable tag:` in `readme.txt`. All three must match.
