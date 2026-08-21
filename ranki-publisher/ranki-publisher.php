@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.4
+ * Version:           1.8.5
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.4' );
+define( 'RANKI_VERSION',    '1.8.5' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -1087,22 +1087,80 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 	global $wpdb;
 
 	$dry_run = ! empty( $payload['dry_run'] );
-	$table   = $wpdb->prefix . 'e_submissions';
-	$result  = array(
-		'job_id'  => $job_id,
-		'dry_run' => $dry_run,
-		'count'   => 0,
-		'sample'  => array(),
-		'leads'   => array(),
+
+	if ( ! function_exists( 'is_plugin_active' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/plugin.php';
+	}
+
+	// Which form plugins are installed matters more than what we can see from
+	// outside the site (SiteGround and similar hosts block that kind of check
+	// entirely). Only Elementor's table is actually read below, this list is
+	// diagnostic so Ranki knows which clients need a different reader built.
+	$plugin_files = array(
+		'elementor'      => 'elementor-pro/elementor-pro.php',
+		'cf7'            => 'contact-form-7/wp-contact-form-7.php',
+		'flamingo'       => 'flamingo/flamingo.php',
+		'wpforms'        => 'wpforms/wpforms.php',
+		'wpforms_lite'   => 'wpforms-lite/wpforms.php',
+		'gravity'        => 'gravityforms/gravityforms.php',
+		'ninja'          => 'ninja-forms/ninja-forms.php',
+		'fluentform'     => 'fluentform/fluentform.php',
+		'fluentform_pro' => 'fluentformpro/fluentformpro.php',
+		'formidable'     => 'formidable/formidable.php',
+	);
+	$active_plugins = array();
+	foreach ( $plugin_files as $label => $path ) {
+		if ( is_plugin_active( $path ) ) {
+			$active_plugins[] = $label;
+		}
+	}
+
+	$table_checks = array(
+		'elementor'      => $wpdb->prefix . 'e_submissions',
+		'wpforms'        => $wpdb->prefix . 'wpforms_entries',
+		'gravity'        => $wpdb->prefix . 'gf_entry',
+		'gravity_legacy' => $wpdb->prefix . 'rg_lead',
+		'fluentform'     => $wpdb->prefix . 'fluentform_submissions',
+		'formidable'     => $wpdb->prefix . 'frm_items',
+	);
+	$tables = array();
+	foreach ( $table_checks as $label => $table ) {
+		$exists           = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
+		$tables[ $label ] = array(
+			'exists' => $exists,
+			'count'  => $exists ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ) : 0,
+		);
+	}
+	// Ninja Forms and Flamingo (CF7's storage add-on) keep entries as custom
+	// post types rather than their own tables.
+	foreach ( array( 'ninja' => 'nf_sub', 'flamingo' => 'flamingo_inbound' ) as $label => $post_type ) {
+		$count            = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s", $post_type ) );
+		$tables[ $label ] = array( 'exists' => $count > 0, 'count' => $count );
+	}
+
+	$result = array(
+		'job_id'         => $job_id,
+		'dry_run'        => $dry_run,
+		'active_plugins' => $active_plugins,
+		'tables'         => $tables,
+		'count'          => $tables['elementor']['count'],
+		'sample'         => array(),
+		'leads'          => array(),
 	);
 
-	if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
-		$result['count'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
-
+	if ( $tables['elementor']['exists'] ) {
 		if ( $dry_run ) {
-			$result['sample'] = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY id DESC LIMIT 3", ARRAY_A );
+			$rows = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}e_submissions ORDER BY id DESC LIMIT 3", ARRAY_A );
+			// Cap field lengths - some columns (actions_data, user_agent) can be long.
+			foreach ( $rows as &$row ) {
+				foreach ( $row as $field => $value ) {
+					$row[ $field ] = is_string( $value ) ? mb_substr( $value, 0, 200 ) : $value;
+				}
+			}
+			unset( $row );
+			$result['sample'] = $rows;
 		} else {
-			$rows = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY id ASC", ARRAY_A );
+			$rows = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}e_submissions ORDER BY id ASC", ARRAY_A );
 			foreach ( $rows as $row ) {
 				$created = $row['created_at'] ?? $row['date'] ?? $row['submitted_at'] ?? null;
 				if ( ! $created ) {

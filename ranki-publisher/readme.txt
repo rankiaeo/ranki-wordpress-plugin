@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.4
+Stable tag: 1.8.5
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -93,6 +93,9 @@ This plugin communicates with the **Ranki** backend service to function. Specifi
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.8.5 =
+* The historical lead-recovery job (added in 1.8.3) now also detects which form plugin a site is actually running - Contact Form 7, WPForms, Gravity Forms, Ninja Forms, Fluent Forms, Formidable, and Flamingo - not just Elementor, since most hosts block checking this from outside the site. Only Elementor's own submissions are recovered today; the rest is diagnostic so Ranki knows which sites need a separate reader built.
 
 = 1.8.4 =
 * Ranki can now correct the SEO meta description of a post that is already published, without republishing it or touching its content, title or focus keyword. On hosts that block inbound requests the correction arrives through the usual pull queue, so it works the same everywhere.
