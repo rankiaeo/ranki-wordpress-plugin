@@ -61,6 +61,27 @@ register_deactivation_hook( __FILE__, function () {
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auto-updates
+// ─────────────────────────────────────────────────────────────────────────────
+// WordPress leaves plugin auto-updates off unless the site owner turns them on
+// per plugin, so a released fix sits behind a manual click on every site. Opt in
+// on behalf of the site once, using core's own mechanism, then never touch it
+// again: if the owner later switches it off from the Plugins screen, the flag
+// below is already set, so their choice stands.
+add_action( 'admin_init', function () {
+	if ( get_option( 'ranki_auto_update_optin', '' ) ) {
+		return;
+	}
+	update_option( 'ranki_auto_update_optin', RANKI_VERSION );
+	$file    = plugin_basename( __FILE__ );
+	$enabled = (array) get_site_option( 'auto_update_plugins', array() );
+	if ( ! in_array( $file, $enabled, true ) ) {
+		$enabled[] = $file;
+		update_site_option( 'auto_update_plugins', $enabled );
+	}
+} );
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Admin settings page — shows site URL + secret key for copy-paste into Ranki
 // ─────────────────────────────────────────────────────────────────────────────
 add_action( 'admin_menu', function () {
