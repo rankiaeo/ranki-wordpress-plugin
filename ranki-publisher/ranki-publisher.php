@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.3
+ * Version:           1.8.4
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.3' );
+define( 'RANKI_VERSION',    '1.8.4' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
@@ -271,6 +271,13 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 			} else {
 				ranki_report_job_done( $api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '' );
 			}
+		} elseif ( 'update-meta' === $action ) {
+			$result = ranki_handle_update_meta( $request );
+			if ( is_wp_error( $result ) ) {
+				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
+			} else {
+				ranki_report_job_done( $api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '' );
+			}
 		} elseif ( 'export-leads' === $action ) {
 			// Reports its own job status to /wp-sync/leads-export (which stashes a
 			// count/sample summary on the job row), not via ranki_report_job_done.
@@ -353,6 +360,11 @@ add_action( 'rest_api_init', function () {
 	register_rest_route( 'ranki/v1', '/update-content', array(
 		'methods'             => 'POST',
 		'callback'            => 'ranki_handle_update_content',
+		'permission_callback' => 'ranki_check_auth',
+	) );
+	register_rest_route( 'ranki/v1', '/update-meta', array(
+		'methods'             => 'POST',
+		'callback'            => 'ranki_handle_update_meta',
 		'permission_callback' => 'ranki_check_auth',
 	) );
 	register_rest_route( 'ranki/v1', '/set-schema', array(
@@ -957,6 +969,53 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
+
+	return rest_ensure_response( array(
+		'ok'      => true,
+		'post_id' => $post_id,
+	) );
+}
+
+/**
+ * REST callback: update the SEO meta description of an existing post.
+ *
+ * Accepts {post_id, meta_description, seo_plugin}. Deliberately narrow: it writes
+ * the description and nothing else, so a meta correction can never disturb the
+ * focus keyword, the SEO title or the post content. Used by Ranki's backfill,
+ * which reaches sites whose host blocks inbound REST calls by travelling through
+ * the pull queue instead.
+ *
+ * @param WP_REST_Request $request REST request object.
+ * @return WP_REST_Response|WP_Error
+ */
+function ranki_handle_update_meta( WP_REST_Request $request ) {
+	$params     = $request->get_json_params();
+	$post_id    = absint( $params['post_id'] ?? 0 );
+	$meta_desc  = sanitize_text_field( $params['meta_description'] ?? '' );
+	$seo_plugin = sanitize_text_field( $params['seo_plugin'] ?? 'rankmath' );
+
+	if ( ! $post_id ) {
+		return new WP_Error( 'missing_post_id', __( 'post_id is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+	if ( '' === $meta_desc ) {
+		return new WP_Error( 'missing_meta_description', __( 'meta_description is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		/* translators: %d: WordPress post ID */
+		return new WP_Error( 'not_found', sprintf( __( 'Post %d not found', 'ranki-publisher' ), $post_id ), array( 'status' => 404 ) );
+	}
+
+	if ( 'yoast' === $seo_plugin ) {
+		update_post_meta( $post_id, '_yoast_wpseo_metadesc', $meta_desc );
+	} else {
+		update_post_meta( $post_id, 'rank_math_description', $meta_desc );
+	}
+
+	// The description is rendered into <head>, so a cached page keeps serving the
+	// old one until the cache is dropped.
+	ranki_purge_cache( $post_id, get_permalink( $post_id ) );
 
 	return rest_ensure_response( array(
 		'ok'      => true,
