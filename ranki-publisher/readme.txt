@@ -82,12 +82,9 @@ Go to **Settings → Ranki Publisher** and click **Regenerate Secret Key**. Then
 
 == Third-Party Services ==
 
-This plugin communicates with the **Ranki** backend service to function. Specifically:
+This plugin requires a Ranki account and communicates with the Ranki service at ranki.com.au to function. Every 5 minutes it asks Ranki whether any content is waiting to be published, then reports back whether each job succeeded.
 
-* **Polling for jobs**: every 5 minutes, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/poll` to check for pending content publishing jobs. The request includes your site's secret key in a header (never in the URL).
-* **Reporting job results**: after processing each job, the plugin calls `https://ranki-backend-production.up.railway.app/wp-sync/done` to report success or failure, including the published post ID and URL.
-
-**Data transmitted:** your site's secret key (as an authentication header), the result of each publishing job (post ID, post URL, error message if applicable). No personal user data is transmitted.
+**Data transmitted:** your site's secret key, sent as an authentication header, and the outcome of each publishing job (post ID, post URL, and an error message if one occurred). No personal user data is transmitted.
 
 * Ranki Terms of Service: https://ranki.com.au/terms
 * Ranki Privacy Policy: https://ranki.com.au/privacy
