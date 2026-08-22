@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.6
+ * Version:           1.8.7
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,8 +16,11 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.6' );
+define( 'RANKI_VERSION',    '1.8.7' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
+define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
+define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
+define( 'RANKI_OPTION_CATEGORY', 'ranki_default_category' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Enqueue lead + call tracker on all public pages.
@@ -101,8 +104,49 @@ function ranki_settings_page() {
 	$key      = get_option( RANKI_OPTION_KEY, '' );
 	$site_url = get_site_url();
 	?>
+	<?php
+	$status     = get_option( RANKI_OPTION_STATUS, array() );
+	$state      = is_array( $status ) ? ( $status['state'] ?? '' ) : '';
+	$checked_at = is_array( $status ) ? (int) ( $status['time'] ?? 0 ) : 0;
+
+	if ( ! $key ) {
+		$badge_colour = '#64748b';
+		$badge_text   = __( 'Not set up', 'ranki-publisher' );
+		$badge_help   = __( 'No key on this site yet. Reactivate the plugin to generate one.', 'ranki-publisher' );
+	} elseif ( 'connected' === $state ) {
+		$badge_colour = '#16a34a';
+		$badge_text   = __( 'Connected', 'ranki-publisher' );
+		$badge_help   = sprintf(
+			/* translators: %s: human readable time difference, e.g. "3 mins". */
+			__( 'Ranki recognised this site %s ago.', 'ranki-publisher' ),
+			human_time_diff( $checked_at, time() )
+		);
+	} elseif ( 'unknown_key' === $state ) {
+		$badge_colour = '#d97706';
+		$badge_text   = __( 'Waiting to be connected', 'ranki-publisher' );
+		$badge_help   = __( 'This site has a key, but no Ranki account is using it yet. Paste the key below into Ranki to finish connecting.', 'ranki-publisher' );
+	} elseif ( 'error' === $state ) {
+		$badge_colour = '#dc2626';
+		$badge_text   = __( 'Cannot reach Ranki', 'ranki-publisher' );
+		$badge_help   = __( 'This site could not reach Ranki on its last try. It will keep retrying every few minutes.', 'ranki-publisher' );
+	} else {
+		$badge_colour = '#d97706';
+		$badge_text   = __( 'Ready to connect', 'ranki-publisher' );
+		$badge_help   = __( 'Paste the key below into Ranki. This site checks in every few minutes, so the status updates shortly after.', 'ranki-publisher' );
+	}
+	?>
 	<div class="wrap">
 		<h1><?php esc_html_e( 'Ranki Publisher', 'ranki-publisher' ); ?></h1>
+
+		<div class="card" style="max-width:600px;padding:12px 16px;margin-bottom:16px;">
+			<h2 style="margin-top:0;"><?php esc_html_e( 'Status', 'ranki-publisher' ); ?></h2>
+			<p style="margin:0 0 6px;">
+				<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:<?php echo esc_attr( $badge_colour ); ?>;margin-inline-end:8px;"></span>
+				<strong><?php echo esc_html( $badge_text ); ?></strong>
+			</p>
+			<p class="description" style="margin:0;"><?php echo esc_html( $badge_help ); ?></p>
+		</div>
+
 		<p><?php esc_html_e( 'Copy the details below into your Ranki admin panel to connect this WordPress site.', 'ranki-publisher' ); ?></p>
 
 		<table class="form-table" role="presentation">
@@ -129,6 +173,58 @@ function ranki_settings_page() {
 			</tr>
 		</table>
 
+		<h2><?php esc_html_e( 'Publishing Options', 'ranki-publisher' ); ?></h2>
+		<p><?php esc_html_e( 'Choose how articles published by Ranki appear on this site.', 'ranki-publisher' ); ?></p>
+		<form method="post">
+			<?php wp_nonce_field( 'ranki_save_publishing' ); ?>
+			<input type="hidden" name="ranki_action" value="save_publishing">
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="ranki_post_author_id"><?php esc_html_e( 'Post Author', 'ranki-publisher' ); ?></label>
+					</th>
+					<td>
+						<?php
+						wp_dropdown_users(
+							array(
+								'name'              => 'ranki_post_author_id',
+								'id'                => 'ranki_post_author_id',
+								'selected'          => absint( get_option( RANKI_OPTION_AUTHOR, 0 ) ),
+								'show_option_none'  => __( '— Default (first admin) —', 'ranki-publisher' ),
+								'option_none_value' => 0,
+								// Only users who may actually own a post.
+								'capability'        => array( 'edit_posts' ),
+							)
+						);
+						?>
+						<p class="description"><?php esc_html_e( 'Which user is shown as the author of articles Ranki publishes.', 'ranki-publisher' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="ranki_default_category"><?php esc_html_e( 'Post Category', 'ranki-publisher' ); ?></label>
+					</th>
+					<td>
+						<?php
+						wp_dropdown_categories(
+							array(
+								'name'             => 'ranki_default_category',
+								'id'               => 'ranki_default_category',
+								'selected'         => absint( get_option( RANKI_OPTION_CATEGORY, 0 ) ),
+								'show_option_none' => __( '— Let Ranki choose —', 'ranki-publisher' ),
+								'option_none_value' => 0,
+								'hide_empty'       => false,
+								'hierarchical'     => true,
+							)
+						);
+						?>
+						<p class="description"><?php esc_html_e( 'Where articles are filed. Leave as "Let Ranki choose" and Ranki matches a category to the topic, creating one if nothing fits.', 'ranki-publisher' ); ?></p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Save Options', 'ranki-publisher' ) ); ?>
+		</form>
+
 		<h2><?php esc_html_e( 'Regenerate Key', 'ranki-publisher' ); ?></h2>
 		<p><?php esc_html_e( 'If you think your key has been compromised, regenerate it and update it in Ranki.', 'ranki-publisher' ); ?></p>
 		<form method="post">
@@ -142,6 +238,38 @@ function ranki_settings_page() {
 	<?php
 }
 
+// Handle the publishing options form.
+add_action( 'admin_init', function () {
+	if (
+		! isset( $_POST['ranki_action'] ) ||
+		'save_publishing' !== $_POST['ranki_action'] ||
+		! check_admin_referer( 'ranki_save_publishing' ) ||
+		! current_user_can( 'manage_options' )
+	) {
+		return;
+	}
+
+	$author = isset( $_POST['ranki_post_author_id'] ) ? absint( wp_unslash( $_POST['ranki_post_author_id'] ) ) : 0;
+	// Store 0 rather than a user who cannot own a post, so publishing falls back
+	// to the admin instead of failing on a stale id.
+	if ( $author && ! get_userdata( $author ) ) {
+		$author = 0;
+	}
+	update_option( RANKI_OPTION_AUTHOR, $author );
+
+	$category = isset( $_POST['ranki_default_category'] ) ? absint( wp_unslash( $_POST['ranki_default_category'] ) ) : 0;
+	if ( $category && ! term_exists( $category, 'category' ) ) {
+		$category = 0;
+	}
+	update_option( RANKI_OPTION_CATEGORY, $category );
+
+	add_action( 'admin_notices', function () {
+		echo '<div class="notice notice-success is-dismissible"><p>' .
+			esc_html__( 'Publishing options saved.', 'ranki-publisher' ) .
+			'</p></div>';
+	} );
+} );
+
 // Handle key regeneration form submission.
 add_action( 'admin_init', function () {
 	if (
@@ -151,6 +279,8 @@ add_action( 'admin_init', function () {
 		current_user_can( 'manage_options' )
 	) {
 		update_option( RANKI_OPTION_KEY, wp_generate_password( 40, false ) );
+		// The old key is what Ranki matched on, so the previous status is now a lie.
+		delete_option( RANKI_OPTION_STATUS );
 		add_action( 'admin_notices', function () {
 			echo '<div class="notice notice-success is-dismissible"><p>' .
 				esc_html__( 'Ranki secret key regenerated. Update it in your Ranki admin panel.', 'ranki-publisher' ) .
@@ -238,9 +368,33 @@ function ranki_process_queue() {
 		)
 	);
 
-	if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+	// Record the outcome so the settings screen can show whether Ranki recognises
+	// this site. Without it the only confirmation lives in the Ranki dashboard, and
+	// the site owner pasting the key has no way to tell here that it worked.
+	$code = wp_remote_retrieve_response_code( $response );
+	if ( is_wp_error( $response ) ) {
+		update_option( RANKI_OPTION_STATUS, array(
+			'state'   => 'error',
+			'message' => $response->get_error_message(),
+			'time'    => time(),
+		) );
 		return; // Silent fail — will retry in 5 minutes.
 	}
+	if ( 200 !== $code ) {
+		update_option( RANKI_OPTION_STATUS, array(
+			// 404 is the backend saying no account holds this key.
+			'state'   => ( 404 === $code ) ? 'unknown_key' : 'error',
+			'message' => sprintf( 'HTTP %d', $code ),
+			'time'    => time(),
+		) );
+		return; // Silent fail — will retry in 5 minutes.
+	}
+
+	update_option( RANKI_OPTION_STATUS, array(
+		'state'   => 'connected',
+		'message' => '',
+		'time'    => time(),
+	) );
 
 	$body = json_decode( wp_remote_retrieve_body( $response ), true );
 	$jobs = $body['jobs'] ?? array();
@@ -804,6 +958,10 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 				}
 			}
 		}
+	} elseif ( ( $default_cat = absint( get_option( RANKI_OPTION_CATEGORY, 0 ) ) ) && term_exists( $default_cat, 'category' ) ) {
+		// A category picked on the settings screen is a deliberate choice, so it wins
+		// over the guesser below, which invents new categories from the keyword.
+		$category_ids = array( $default_cat );
 	} elseif ( $focus_kw ) {
 		// Auto-detect the best matching existing category for this keyword.
 		$all_cats   = get_categories( array( 'hide_empty' => false, 'exclude' => array( 1 ) ) );
@@ -838,9 +996,14 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 
 	// ── 4. Determine post author ──────────────────────────────────────────────
 	// Requests come from the Ranki backend — there is no logged-in WordPress
-	// user. We default to user ID 1 (the first admin). Site owners can
-	// override this via the ranki_post_author filter.
-	$post_author = absint( apply_filters( 'ranki_post_author', 1 ) );
+	// user. Use the author chosen on the settings screen, falling back to user
+	// ID 1 (the first admin). The ranki_post_author filter still has the last
+	// word so existing code overrides keep working.
+	$saved_author = absint( get_option( RANKI_OPTION_AUTHOR, 0 ) );
+	if ( ! $saved_author || ! get_userdata( $saved_author ) ) {
+		$saved_author = 1;
+	}
+	$post_author = absint( apply_filters( 'ranki_post_author', $saved_author ) );
 
 	// ── 5. Create post ────────────────────────────────────────────────────────
 	$raw_post_type = sanitize_key( $params['post_type'] ?? 'post' );
