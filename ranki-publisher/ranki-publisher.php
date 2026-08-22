@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.7
+ * Version:           1.8.8
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.7' );
+define( 'RANKI_VERSION',    '1.8.8' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -455,6 +455,13 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
 			} else {
 				ranki_report_job_done( $api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '' );
+			}
+		} elseif ( 'local-seo' === $action ) {
+			$result = ranki_apply_local_seo( $payload );
+			if ( is_wp_error( $result ) ) {
+				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
+			} else {
+				ranki_report_job_done( $api_base, $key, $job_id, true, 0, '', '' );
 			}
 		} elseif ( 'export-leads' === $action ) {
 			// Reports its own job status to /wp-sync/leads-export (which stashes a
@@ -1208,6 +1215,96 @@ function ranki_handle_update_meta( WP_REST_Request $request ) {
 		'ok'      => true,
 		'post_id' => $post_id,
 	) );
+}
+
+/**
+ * Rank Math Local SEO keys Ranki is allowed to write.
+ *
+ * An allowlist rather than "whatever was sent", because this option also holds
+ * every title template, separator and archive setting on the site. Ranki knows
+ * the business facts and nothing else, so it may only write the business facts.
+ *
+ * @return array
+ */
+function ranki_local_seo_writable_keys(): array {
+	return array(
+		'knowledgegraph_name',
+		'knowledgegraph_type',
+		'local_business_type',
+		'url',
+		'email',
+		'phone',
+		'phone_numbers',
+		'local_address',
+		'price_range',
+		'opening_hours',
+		'description',
+		'homepage_description',
+		'social_url_facebook',
+		'social_url_linkedin',
+		'social_url_instagram',
+	);
+}
+
+/**
+ * Write the Local SEO half of Rank Math's settings from the facts Ranki holds.
+ *
+ * Merges into rank_math_options_titles. It never replaces the option, because
+ * that array also carries the site's title templates and archive settings, and
+ * the previous approach (exporting a whole settings file for a human to import)
+ * overwrote all of it.
+ *
+ * @param array $payload Job payload with a `fields` map.
+ * @return array|WP_Error Summary of what was written.
+ */
+function ranki_apply_local_seo( array $payload ) {
+	$fields = $payload['fields'] ?? array();
+	if ( ! is_array( $fields ) || empty( $fields ) ) {
+		return new WP_Error( 'missing_fields', __( 'fields is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	if ( ! defined( 'RANK_MATH_VERSION' ) && ! class_exists( 'RankMath' ) ) {
+		return new WP_Error( 'no_rank_math', __( 'Rank Math is not active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	$existing = get_option( 'rank_math_options_titles', array() );
+	if ( ! is_array( $existing ) ) {
+		$existing = array();
+	}
+
+	$allowed = ranki_local_seo_writable_keys();
+	$written = array();
+
+	foreach ( $fields as $key => $value ) {
+		if ( ! in_array( $key, $allowed, true ) ) {
+			continue;
+		}
+		// An empty value means Ranki does not hold that fact. Leaving whatever is
+		// already on the site is always better than blanking it.
+		if ( '' === $value || null === $value || array() === $value ) {
+			continue;
+		}
+		$existing[ $key ] = is_array( $value ) ? map_deep( $value, 'sanitize_text_field' ) : sanitize_text_field( $value );
+		$written[]        = $key;
+	}
+
+	if ( empty( $written ) ) {
+		return new WP_Error( 'nothing_to_write', __( 'No writable fields had a value', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	update_option( 'rank_math_options_titles', $existing );
+
+	// The schema is rendered into <head> on the front page, so a cached homepage
+	// keeps serving the old markup until the cache is dropped.
+	$front_id = (int) get_option( 'page_on_front' );
+	if ( $front_id ) {
+		ranki_purge_cache( $front_id, get_permalink( $front_id ) );
+	}
+
+	return array(
+		'ok'      => true,
+		'written' => $written,
+	);
 }
 
 /**

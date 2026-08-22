@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.7
+Stable tag: 1.8.8
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.8.8 =
+* Ranki can now fill in your Rank Math Local SEO details (business name, type, address, phone, hours) from what it already knows about your business, so your site serves proper business schema to Google and to AI assistants. It only ever writes those business fields and leaves the rest of your Rank Math settings alone.
 
 = 1.8.7 =
 * Added a Status panel so you can see from WordPress whether Ranki has connected to this site.
