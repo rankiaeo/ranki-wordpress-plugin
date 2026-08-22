@@ -364,6 +364,9 @@ function ranki_process_queue() {
 				'Accept'                  => 'application/json',
 				'X-Ranki-Key'             => $key,
 				'X-Ranki-Plugin-Version'  => RANKI_VERSION,
+				// Lets Ranki tie this key to one site. A cloned or restored copy carries
+				// the same key, and would otherwise claim articles meant for the original.
+				'X-Ranki-Site'            => get_site_url(),
 			),
 		)
 	);

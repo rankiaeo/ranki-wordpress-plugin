@@ -95,6 +95,7 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Added a Status panel so you can see from WordPress whether Ranki has connected to this site.
 * Added a Post Author setting to choose which user is credited on published articles.
 * Added a Post Category setting to choose where articles are filed.
+* The site now tells Ranki which address it is, so a key can only be used by one site. Copying a site to staging no longer lets the copy take articles meant for the live site.
 
 = 1.8.6 =
 * The plugin now keeps itself up to date. WordPress leaves plugin auto-updates switched off until you turn them on for each plugin, so a released fix waits on a manual click on every site. This turns them on once, using WordPress's own updater. If you would rather update by hand, switch auto-updates off for Ranki Publisher on the Plugins screen and that choice sticks.
