@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.9
+ * Version:           1.9.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,12 +16,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.8.9' );
+define( 'RANKI_VERSION', '1.9.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
 define( 'RANKI_OPTION_CATEGORY', 'ranki_default_category' );
 define( 'RANKI_OPTION_PREF_SRC', 'ranki_preferred_source' );
+define( 'RANKI_OPTION_PREF_SRC_OK', 'ranki_preferred_source_eligible' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Enqueue lead + call tracker on all public pages.
@@ -47,8 +48,19 @@ add_action( 'wp_enqueue_scripts', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 // Google Preferred Sources button
 // ─────────────────────────────────────────────────────────────────────────────
+function ranki_preferred_source_eligible(): bool {
+	return '1' === (string) get_option( RANKI_OPTION_PREF_SRC_OK, '0' );
+}
+
+/**
+ * The button renders on any domain, so showing it on a site Google does not
+ * carry gives readers a control that leads nowhere. Ranki checks which domains
+ * Google lists and reports it on the check-in below, and the button waits for
+ * that rather than trusting a switch on this site.
+ */
 function ranki_preferred_source_enabled(): bool {
-	return '1' === (string) get_option( RANKI_OPTION_PREF_SRC, '1' );
+	return ranki_preferred_source_eligible()
+		&& '1' === (string) get_option( RANKI_OPTION_PREF_SRC, '1' );
 }
 
 function ranki_preferred_source_button(): string {
@@ -268,6 +280,15 @@ function ranki_settings_page() {
 							<?php esc_html_e( 'Show Google\'s "add as preferred source" button at the end of each article', 'ranki-publisher' ); ?>
 						</label>
 						<p class="description"><?php esc_html_e( 'Readers who tap it tell Google to favour this site in Top Stories, AI Overviews and AI Mode. Use the [ranki_preferred_source] shortcode to place it anywhere else, such as your footer or sidebar.', 'ranki-publisher' ); ?></p>
+						<p class="description">
+							<?php
+							if ( ranki_preferred_source_eligible() ) {
+								esc_html_e( 'Google lists this site as a source, so the button is live.', 'ranki-publisher' );
+							} else {
+								esc_html_e( 'Google does not list this site as a source yet, so the button stays hidden even when this is ticked. Ranki checks this and turns it on by itself.', 'ranki-publisher' );
+							}
+							?>
+						</p>
 					</td>
 				</tr>
 			</table>
@@ -451,6 +472,15 @@ function ranki_process_queue() {
 	) );
 
 	$body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+	// Only trust an answer that is actually present. An older Ranki that says
+	// nothing about this must not be read as "not eligible", or the button would
+	// vanish everywhere the moment this site updated ahead of the backend.
+	$settings = $body['site_settings'] ?? array();
+	if ( is_array( $settings ) && array_key_exists( 'preferred_source', $settings ) ) {
+		update_option( RANKI_OPTION_PREF_SRC_OK, empty( $settings['preferred_source'] ) ? '0' : '1' );
+	}
+
 	$jobs = $body['jobs'] ?? array();
 	if ( empty( $jobs ) ) {
 		return;
