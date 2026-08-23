@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.8.8
+ * Version:           1.8.9
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,11 +16,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION',    '1.8.8' );
+define( 'RANKI_VERSION', '1.8.9' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
 define( 'RANKI_OPTION_CATEGORY', 'ranki_default_category' );
+define( 'RANKI_OPTION_PREF_SRC', 'ranki_preferred_source' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Enqueue lead + call tracker on all public pages.
@@ -41,6 +42,44 @@ add_action( 'wp_enqueue_scripts', function () {
 		'nonce'    => wp_create_nonce( 'ranki_tracker' ),
 	) );
 	wp_add_inline_script( 'ranki-tracker', file_get_contents( plugin_dir_path( __FILE__ ) . 'ranki-tracker.js' ) );
+} );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Google Preferred Sources button
+// ─────────────────────────────────────────────────────────────────────────────
+function ranki_preferred_source_enabled(): bool {
+	return '1' === (string) get_option( RANKI_OPTION_PREF_SRC, '1' );
+}
+
+function ranki_preferred_source_button(): string {
+	if ( ! ranki_preferred_source_enabled() ) {
+		return '';
+	}
+	// Google matches the primary subtag only, so a he-IL site has to send "he".
+	$lang = strtolower( substr( (string) get_bloginfo( 'language' ), 0, 2 ) );
+	return '<div class="ranki-preferred-source" style="margin:28px 0;"><div google-add-preferred-source-btn'
+		. ( $lang ? ' data-lang="' . esc_attr( $lang ) . '"' : '' ) . '></div></div>';
+}
+
+add_shortcode( 'ranki_preferred_source', 'ranki_preferred_source_button' );
+
+// Google's library is what turns the empty div into a rendered button.
+add_action( 'wp_head', function () {
+	if ( ! ranki_preferred_source_enabled() ) {
+		return;
+	}
+	echo '<script async src="https://news.google.com/swg/js/v1/publisher.js"></script>' . "\n";
+} );
+
+// Auto-place the button at the end of every article.
+add_filter( 'the_content', function ( $content ) {
+	if ( ! is_singular( 'post' ) || ! in_the_loop() || ! is_main_query() ) {
+		return $content;
+	}
+	if ( has_shortcode( $content, 'ranki_preferred_source' ) ) {
+		return $content;
+	}
+	return $content . ranki_preferred_source_button();
 } );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +260,16 @@ function ranki_settings_page() {
 						<p class="description"><?php esc_html_e( 'Where articles are filed. Leave as "Let Ranki choose" and Ranki matches a category to the topic, creating one if nothing fits.', 'ranki-publisher' ); ?></p>
 					</td>
 				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Preferred Source Button', 'ranki-publisher' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="ranki_preferred_source" value="1" <?php checked( ranki_preferred_source_enabled() ); ?>>
+							<?php esc_html_e( 'Show Google\'s "add as preferred source" button at the end of each article', 'ranki-publisher' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Readers who tap it tell Google to favour this site in Top Stories, AI Overviews and AI Mode. Use the [ranki_preferred_source] shortcode to place it anywhere else, such as your footer or sidebar.', 'ranki-publisher' ); ?></p>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button( __( 'Save Options', 'ranki-publisher' ) ); ?>
 		</form>
@@ -262,6 +311,8 @@ add_action( 'admin_init', function () {
 		$category = 0;
 	}
 	update_option( RANKI_OPTION_CATEGORY, $category );
+
+	update_option( RANKI_OPTION_PREF_SRC, isset( $_POST['ranki_preferred_source'] ) ? '1' : '0' );
 
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-success is-dismissible"><p>' .

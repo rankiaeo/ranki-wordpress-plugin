@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.8.8
+Stable tag: 1.8.9
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.8.9 =
+* Added Google's "add as preferred source" button to the end of every article. Readers who tap it are telling Google to favour this site for them in Top Stories, AI Overviews and AI Mode. Turn it off, or move it with the [ranki_preferred_source] shortcode, under Settings, Ranki Publisher.
 
 = 1.8.8 =
 * Ranki can now fill in your Rank Math Local SEO details (business name, type, address, phone, hours) from what it already knows about your business, so your site serves proper business schema to Google and to AI assistants. It only ever writes those business fields and leaves the rest of your Rank Math settings alone.
