@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.9.0
+ * Version:           1.9.1
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.9.0' );
+define( 'RANKI_VERSION', '1.9.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -80,7 +80,14 @@ add_action( 'wp_head', function () {
 	if ( ! ranki_preferred_source_enabled() ) {
 		return;
 	}
-	echo '<script async src="https://news.google.com/swg/js/v1/publisher.js"></script>' . "\n";
+	// Attached from inline JS instead of written as a <script src> tag. Host JS
+	// optimizers rewrite external script tags they do not recognise, and SiteGround
+	// Optimizer dropped this one from the page entirely, which left the button div
+	// on screen with nothing to render it. Inline output survives that, the same
+	// reason the tracker above is inlined rather than enqueued with a src.
+	echo '<script>(function(){var s=document.createElement("script");s.async=true;'
+		. 's.src="https://news.google.com/swg/js/v1/publisher.js";'
+		. 'document.head.appendChild(s);})();</script>' . "\n";
 } );
 
 // Auto-place the button at the end of every article.

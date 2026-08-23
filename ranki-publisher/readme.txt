@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.9.1 =
+* Fixed the preferred source button not appearing on sites that run a JavaScript optimizer. The optimizer was removing Google's script from the page, so the button had nothing to draw it and readers saw an empty gap.
 
 = 1.9.0 =
 * The preferred source button now only appears if Google actually lists your site as a source. Google carries some sites and not others, and the button looks the same either way, so on a site Google does not carry readers were being offered a control that led nowhere. Ranki checks this for you and switches the button on by itself.
