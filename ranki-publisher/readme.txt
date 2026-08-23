@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.9.1
+Stable tag: 1.9.2
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.9.2 =
+* Ranki can now write your business logo into Rank Math's Local SEO settings, so your logo shows up in Google's Knowledge Panel and AI answers, not just page content.
 
 = 1.9.1 =
 * Fixed the preferred source button not appearing on sites that run a JavaScript optimizer. The optimizer was removing Google's script from the page, so the button had nothing to draw it and readers saw an empty gap.
