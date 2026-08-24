@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.11.0
+ * Version:           1.12.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.11.0' );
+define( 'RANKI_VERSION', '1.12.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1348,6 +1348,9 @@ function ranki_seo_config_writable_keys(): array {
 			'breadcrumbs', 'breadcrumbs_separator', 'breadcrumbs_home',
 			'nofollow_external_links', 'new_window_external_links',
 			'redirections', 'redirections_debug', 'url_strip_stopwords',
+			// Fills in missing image alt text, and stops Rank Math emailing the client
+			// its own monthly SEO report alongside Ranki's.
+			'add_img_alt', 'img_alt_format', 'console_email_reports',
 		),
 		// What gets submitted to Google, and what has no business being there.
 		'rank_math_options_sitemap' => array(
@@ -1370,6 +1373,10 @@ function ranki_dynamic_post_type_keys(): array {
 		$keys[] = "pt_{$pt}_custom_robots";
 		$keys[] = "pt_{$pt}_robots";
 		$keys[] = "pt_{$pt}_sitemap";
+		// What schema a page of this type carries. Ranki has been sending these since
+		// 1.10.0 and this list quietly dropped every one, so a service page kept the
+		// default article schema and the admin screen said otherwise.
+		$keys[] = "pt_{$pt}_default_rich_snippet";
 	}
 	return $keys;
 }

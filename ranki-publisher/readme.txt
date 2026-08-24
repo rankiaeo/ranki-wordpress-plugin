@@ -91,6 +91,10 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 
 == Changelog ==
 
+= 1.12.0 =
+* Service and product pages now carry the right schema instead of the default article schema.
+* Ranki can fill in alt text on images that have none, and switch off Rank Math's own monthly email so it does not arrive alongside your Ranki report.
+
 = 1.11.0 =
 * Ranki can now set up your whole SEO foundation in one step: your business details, what Google indexes, your sitemap, and permission for AI assistants like ChatGPT and Claude to read your site. Your existing robots.txt rules are kept, not replaced.
 
