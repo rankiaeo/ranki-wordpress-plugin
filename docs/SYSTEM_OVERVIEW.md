@@ -26,6 +26,9 @@ The visitor waits for nothing, and the queue keeps moving on any site with even 
 
 Three things now keep the queue moving, and they are deliberately redundant: WP-Cron every 5 minutes, front-end traffic every 5 minutes, and Ranki's own backend pinging `wp-cron.php` from the outside.
 
+### One key, one site (added in 1.8.7)
+Every poll sends `X-Ranki-Site` alongside `X-Ranki-Key` and `X-Ranki-Plugin-Version`. Ranki records the host on first contact (`clients.plugin_site_host`) and refuses a key presented from a different one, so copying a site to staging no longer lets the copy take articles meant for the live site. The poll is also what tells Ranki the plugin is installed, running, and on which version, which is why it, not an outbound ping, is the authoritative health signal.
+
 ## What it does
 - **Publishes new posts** with featured image, SEO meta (Rank Math / Yoast), JSON-LD schema
 - **Updates existing posts** (edit content, meta)
@@ -34,6 +37,12 @@ Three things now keep the queue moving, and they are deliberately redundant: WP-
 - **Health check** (`/ping`) for Ranki to verify the plugin is alive
 - **Reports its own version** to Ranki on every queue poll, so the admin dashboard can flag out-of-date installs
 - **Issues one-click admin login tokens** so Daniel can jump straight into a client's WP admin from the Ranki dashboard
+- **Writes Rank Math settings on Ranki's behalf**: the technical indexing / sitemap / breadcrumb config (`seo-config`) and the client's Local SEO business facts (`local-seo`). Both report every real before and after value so Ranki can show a true diff, and neither is written without an approved preview
+- **Corrects a published post's meta description** (`update-meta`), so a meta fix reaches sites whose host blocks the usual route
+- **Exports historical form leads** (`export-leads`) and reports which form plugins are active on the site, so leads from before Ranki was installed can be recovered
+- **Adds Google's "preferred source" button** to the end of every article, but only on sites Google actually lists as a source, checked by the plugin. Turn it off or move it with the `[ranki_preferred_source]` shortcode
+- **Reports the site's own address** on every poll, which binds a key to one site
+- **Shows a Status panel in WP admin** so the site owner can see whether Ranki has connected, plus Post Author and Post Category settings for where articles are filed and who is credited
 
 ## How it's installed
 Two channels, and they matter:
@@ -58,6 +67,10 @@ Note: earlier versions also wrote `.htaccess` rules on activation to whitelist R
 - `POST /wp-json/ranki/v1/set-schema`: write JSON-LD schema onto an existing post
 - `POST /wp-json/ranki/v1/event`: visitor-facing lead / call tracking (called by `ranki-tracker.js`, rate limited per IP)
 - `POST /wp-json/ranki/v1/sso-token`: mints a single-use one-click admin login link
+- `POST /wp-json/ranki/v1/update-meta`: correct the meta description on an already-published post
+
+### Pull-queue job actions
+These arrive as jobs on the 5-minute poll rather than as endpoints: `publish`, `upload-image`, `update-content`, `update-meta`, `seo-config`, `local-seo`, `export-leads`.
 
 ### Direct query-string fallback (for hosts that block `/wp-json/`)
 - `/?ranki_action=publish`
@@ -85,6 +98,8 @@ Daniel can open a client's WordPress admin from the Ranki dashboard without know
 Guardrails worth knowing before touching this: the token is single-use and burned **before** the login happens (so a leaked or replayed link is dead), it only ever logs in an **administrator** account, and every use is recorded in the `ranki_sso_log` option (last 20 entries) so the site owner can see exactly when someone logged in this way.
 
 ## Version
-Current: **1.8.2** (single file, ~1,100 lines of PHP, plus `ranki-tracker.js` for lead tracking, no external deps)
+Current: **1.10.0** (single file, ~1,800 lines of PHP, plus `ranki-tracker.js` for lead tracking, no external deps)
 
-Live on the WordPress.org plugin directory. Versions 1.7.5 through 1.8.2 are published there.
+Live on the WordPress.org plugin directory. Versions 1.7.5 through 1.10.0 are published there.
+
+Since 1.8.2 the plugin also **opts itself into WordPress auto-updates once** (1.8.6). WordPress leaves plugin auto-updates off until someone turns them on per plugin, so a released fix was waiting on a manual click on every site. If a client would rather update by hand, switching auto-updates off for Ranki Publisher sticks.

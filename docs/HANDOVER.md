@@ -1,7 +1,7 @@
 # Ranki WordPress Plugin — Handover
 
 ## The 30-second version
-Single-file PHP WordPress plugin, currently **v1.8.2**. Installed on every client's WP site. Uses a **pull-queue** design: WP polls Ranki every 5 minutes for jobs instead of accepting inbound requests. Handles publish, update, image upload, lead tracking, health checks, and one-click admin login. **Now live on the official WordPress.org plugin directory**, which is where updates come from.
+Single-file PHP WordPress plugin, currently **v1.10.0** (~1,800 lines). Installed on every client's WP site. Uses a **pull-queue** design: WP polls Ranki every 5 minutes for jobs instead of accepting inbound requests. Handles publish, update, image upload, lead tracking, health checks, and one-click admin login. **Now live on the official WordPress.org plugin directory**, which is where updates come from.
 
 ## The 7 things you must know
 
@@ -30,8 +30,18 @@ This is the single most surprising thing in the current codebase if you're going
 
 What this means in practice:
 - Sites installed from the WordPress.org directory update through the standard WordPress update notice. Nothing custom involved.
-- Releasing a version means committing it to the **WordPress.org SVN repo**, not just bumping a number in the Ranki frontend. The local SVN checkout is at `ranki-workspace/ranki-publisher-svn/` (tags `1.7.5` through `1.8.2` are published).
+- Releasing a version means committing it to the **WordPress.org SVN repo**, not just bumping a number in the Ranki frontend. The local SVN checkout is at `ranki-workspace/ranki-publisher-svn/` (tags `1.7.5` through `1.10.0` are published).
 - Do not re-add a self-updater. It would get the plugin pulled from the directory.
+
+### 6b. Ranki features are gated on the plugin version, and the gate is a hard refusal
+The backend refuses rather than half-applying when a site is behind:
+- `local-seo/push` needs **1.8.8** or newer (`LOCAL_SEO_MIN_PLUGIN`)
+- `seo-config/push` needs **1.10.0** or newer (`SEO_CONFIG_MIN_PLUGIN`)
+
+If you add a job action to the plugin, add its minimum version to the backend route at the same time. A client on an old plugin should get a clear "ask them to update" message, not a silent partial write.
+
+### 6c. One key, one site (1.8.7)
+Every poll now sends `X-Ranki-Site` as well as `X-Ranki-Key` and `X-Ranki-Plugin-Version`. Ranki records the host on first contact and refuses that key from any other host, so a staging copy of a site can't take articles meant for the live one. Cloning a client site to a new domain therefore needs the recorded host cleared, or the copy sits there polling and getting nothing.
 
 ### 7. Image uploads validate real file bytes, not the filename (1.7.6)
 `ranki_is_allowed_image()` is a shared helper checked by **both** upload paths (`ranki_handle_upload_image()` and the featured-image path inside `ranki_handle_publish()`) before anything is written to disk. It inspects the actual decoded bytes, not the client-supplied filename or claimed content type. Before this, one of the two paths wrote decoded base64 straight to disk with no content check at all.
@@ -67,8 +77,8 @@ Everything lives in `ranki-publisher/ranki-publisher.php`. Search by function na
 
 ## Distribution & updates
 - **Primary channel: the WordPress.org plugin directory.** The plugin is listed and live. Clients install it from WP admin search, and updates arrive through the standard WordPress update notice. There is no custom update checker in the plugin any more (removed in 1.7.5, see point 6 above).
-- **Releasing a version means an SVN commit**, not just a version bump. The checkout lives at `ranki-workspace/ranki-publisher-svn/` with `trunk/` and `tags/`. Published tags: 1.7.5, 1.7.6, 1.8.0, 1.8.1, 1.8.2.
-- Bump the version in **three** places on release: the plugin header, the `RANKI_VERSION` constant, and `Stable tag:` in `readme.txt`.
+- **Releasing a version means an SVN commit**, not just a version bump. The checkout lives at `ranki-workspace/ranki-publisher-svn/` with `trunk/` and `tags/`. Published tags: 1.7.5, 1.7.6, 1.8.0 through 1.8.9, 1.9.0 through 1.9.2, and 1.10.0.
+- Bump the version in **four** places on release: the plugin header, the `RANKI_VERSION` constant, `Stable tag:` in `readme.txt`, and `CURRENT_PLUGIN_VERSION` in `ranki/src/lib/pluginVersion.ts` in the frontend repo. That last one is hand-synced and is the one people forget: if it is behind, the admin clients list quietly reports out-of-date sites as current.
 - `ranki-publisher.zip` in the repo is still used for manually installed sites, and `CURRENT_PLUGIN_VERSION` in the frontend (`ranki/src/lib/pluginVersion.ts`) is what the admin clients list compares against to flag out-of-date installs. Keep it in sync by hand.
 - Always test a new version on ONE client site before rolling out to all
 

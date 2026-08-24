@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.11.0 =
+* Ranki can now set up your whole SEO foundation in one step: your business details, what Google indexes, your sitemap, and permission for AI assistants like ChatGPT and Claude to read your site. Your existing robots.txt rules are kept, not replaced.
 
 = 1.10.0 =
 * Ranki can now set up the technical side of Rank Math for you: keeping thin pages like image attachments, tag archives and theme testimonials out of Google, tidying your sitemap, and turning on breadcrumbs. You approve every change before it is written, and you see exactly what it will alter first.

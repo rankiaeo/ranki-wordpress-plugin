@@ -4,7 +4,7 @@
 - **Language:** PHP (requires PHP 7.4+, uses 8.0 features such as union types in newer helpers)
 - **WordPress:** Requires 5.6+, tested up to 7.0
 - **Dependencies:** None (no Composer, no npm)
-- **Current version:** 1.8.2
+- **Current version:** 1.10.0
 - **Distribution:** WordPress.org plugin directory (primary), `ranki-publisher.zip` (manual installs)
 
 ## Repo structure
@@ -56,13 +56,13 @@ Three places, all of them required:
 ```php
 /**
  * Plugin Name: Ranki Publisher
- * Version: 1.8.2    ← bump this
+ * Version: 1.10.0   ← bump this
  */
 ```
 2. The `RANKI_VERSION` constant just below it
 3. `Stable tag:` in `ranki-publisher/readme.txt`
 
-Also update `CURRENT_PLUGIN_VERSION` in `ranki/src/lib/pluginVersion.ts` in the frontend repo. That is what the admin clients list compares each site's reported version against to show the Plugin health column, and it is kept in sync by hand.
+Also update `CURRENT_PLUGIN_VERSION` in `ranki/src/lib/pluginVersion.ts` in the frontend repo. That is what the admin clients list compares each site's reported version against to show the Plugin health column, and it is kept in sync by hand. **It drifts.** As of this refresh the plugin is on 1.10.0 and that constant still reads 1.8.6, so every site between those two versions looks up to date when it isn't.
 
 ## No environment variables
 The plugin has no env vars. All config is either:

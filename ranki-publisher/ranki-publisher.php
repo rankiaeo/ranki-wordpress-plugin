@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.10.0
+ * Version:           1.11.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.10.0' );
+define( 'RANKI_VERSION', '1.11.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1460,13 +1460,39 @@ function ranki_local_seo_writable_keys(): array {
 		'local_address',
 		'price_range',
 		'opening_hours',
-		'description',
-		'homepage_description',
 		'social_url_facebook',
 		'social_url_linkedin',
 		'social_url_instagram',
+		'social_url_youtube',
 		'knowledgegraph_logo',
 		'knowledgegraph_logo_id',
+		// Confirmed against real client exports. description and homepage_description were
+		// in this list and are not where Rank Math keeps a business description, so anything
+		// written to them went nowhere.
+		'website_name',
+		'website_alternate_name',
+		'organization_description',
+		'additional_info',
+		'geo',
+	);
+}
+
+/**
+ * The rest of a client's SEO foundation: robots.txt and the llms.txt settings.
+ *
+ * Kept apart from Local SEO because they live in the general option rather than titles, and
+ * because robots.txt deserves its own line in a review. One wrong Disallow removes a site
+ * from search, which is not a risk any other setting here carries.
+ *
+ * @return string[]
+ */
+function ranki_general_writable_keys(): array {
+	return array(
+		'robots_txt_content',
+		'llms_post_types',
+		'llms_taxonomies',
+		'llms_limit',
+		'llms_extra_content',
 	);
 }
 
@@ -1494,6 +1520,33 @@ function ranki_apply_local_seo( array $payload ) {
 	$existing = get_option( 'rank_math_options_titles', array() );
 	if ( ! is_array( $existing ) ) {
 		$existing = array();
+	}
+
+	// A payload may also carry general-option settings (robots.txt, llms.txt). They are
+	// allowlisted separately and written to their own option, so one job can set up a
+	// client's whole foundation instead of needing three.
+	$general_fields = $payload['general'] ?? array();
+	if ( is_array( $general_fields ) && ! empty( $general_fields ) ) {
+		$general_existing = get_option( 'rank_math_options_general', array() );
+		if ( ! is_array( $general_existing ) ) {
+			$general_existing = array();
+		}
+		$general_allowed = ranki_general_writable_keys();
+		$general_touched = false;
+		foreach ( $general_fields as $gkey => $gvalue ) {
+			if ( ! in_array( $gkey, $general_allowed, true ) ) {
+				continue;
+			}
+			if ( '' === $gvalue || null === $gvalue || array() === $gvalue ) {
+				continue;
+			}
+			$general_existing[ $gkey ] = $gvalue;
+			$general_touched            = true;
+		}
+		if ( $general_touched ) {
+			update_option( 'rank_math_options_general', $general_existing );
+			wp_cache_delete( 'rank_math_options_general', 'options' );
+		}
 	}
 
 	$allowed = ranki_local_seo_writable_keys();
