@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.9.2
+Stable tag: 1.10.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.10.0 =
+* Ranki can now set up the technical side of Rank Math for you: keeping thin pages like image attachments, tag archives and theme testimonials out of Google, tidying your sitemap, and turning on breadcrumbs. You approve every change before it is written, and you see exactly what it will alter first.
 
 = 1.9.2 =
 * Ranki can now write your business logo into Rank Math's Local SEO settings, so your logo shows up in Google's Knowledge Panel and AI answers, not just page content.

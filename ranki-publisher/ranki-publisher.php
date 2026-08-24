@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.9.2
+ * Version:           1.10.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.9.2' );
+define( 'RANKI_VERSION', '1.10.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -543,6 +543,13 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
 			} else {
 				ranki_report_job_done( $api_base, $key, $job_id, true, $payload['post_id'] ?? 0, '' );
+			}
+		} elseif ( 'seo-config' === $action ) {
+			$result = ranki_apply_seo_config( $payload );
+			if ( is_wp_error( $result ) ) {
+				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
+			} else {
+				ranki_report_job_done( $api_base, $key, $job_id, true, 0, wp_json_encode( $result ), '' );
 			}
 		} elseif ( 'local-seo' === $action ) {
 			$result = ranki_apply_local_seo( $payload );
@@ -1314,6 +1321,133 @@ function ranki_handle_update_meta( WP_REST_Request $request ) {
  *
  * @return array
  */
+
+/**
+ * Rank Math settings Ranki may write, grouped by the option they live in.
+ *
+ * An allowlist per group rather than a free write. These options also carry the
+ * site's own title templates, separators and archive choices, and a client's SEO
+ * config is not a thing to replace wholesale: a wrong value here deindexes pages.
+ *
+ * @return array<string, string[]>
+ */
+function ranki_seo_config_writable_keys(): array {
+	return array(
+		// Indexing. What Google is allowed to keep.
+		'rank_math_options_titles' => array(
+			'pt_attachment_custom_robots', 'pt_attachment_robots',
+			'tax_category_custom_robots', 'tax_category_robots',
+			'tax_post_tag_custom_robots', 'tax_post_tag_robots',
+			'noindex_empty_taxonomies',
+			'disable_author_archives', 'disable_date_archives',
+			'noindex_paginated_pages',
+		),
+		// Structure. Breadcrumbs carry schema, attachment pages are thin duplicates.
+		'rank_math_options_general' => array(
+			'attachment_redirect_urls', 'attachment_redirect_default',
+			'breadcrumbs', 'breadcrumbs_separator', 'breadcrumbs_home',
+			'nofollow_external_links', 'new_window_external_links',
+			'redirections', 'redirections_debug', 'url_strip_stopwords',
+		),
+		// What gets submitted to Google, and what has no business being there.
+		'rank_math_options_sitemap' => array(
+			'pt_attachment_sitemap',
+			'tax_category_sitemap', 'tax_post_tag_sitemap',
+			'include_images', 'items_per_page', 'exclude_posts', 'exclude_terms',
+		),
+	);
+}
+
+/**
+ * Custom post types are per site, so their indexing keys cannot be a fixed list.
+ * A key like pt_testimonial_robots is allowed only when that post type exists here.
+ *
+ * @return string[]
+ */
+function ranki_dynamic_post_type_keys(): array {
+	$keys = array();
+	foreach ( get_post_types( array( 'public' => true ), 'names' ) as $pt ) {
+		$keys[] = "pt_{$pt}_custom_robots";
+		$keys[] = "pt_{$pt}_robots";
+		$keys[] = "pt_{$pt}_sitemap";
+	}
+	return $keys;
+}
+
+/**
+ * Apply a Rank Math configuration, returning what each value was beforehand.
+ *
+ * The before values are the point: Ranki shows them as a diff so a human approves
+ * the actual change rather than a promise of one.
+ *
+ * @param array $payload Job payload with a `groups` map of option => fields.
+ * @return array|WP_Error
+ */
+function ranki_apply_seo_config( array $payload ) {
+	$groups = $payload['groups'] ?? array();
+	if ( ! is_array( $groups ) || empty( $groups ) ) {
+		return new WP_Error( 'missing_groups', __( 'groups is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	if ( ! defined( 'RANK_MATH_VERSION' ) && ! class_exists( 'RankMath' ) ) {
+		return new WP_Error( 'no_rank_math', __( 'Rank Math is not active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	$allowed_by_group = ranki_seo_config_writable_keys();
+	$dynamic          = ranki_dynamic_post_type_keys();
+	$dry_run          = ! empty( $payload['preview'] );
+	$changes          = array();
+
+	foreach ( $groups as $option => $fields ) {
+		if ( ! isset( $allowed_by_group[ $option ] ) || ! is_array( $fields ) ) {
+			continue;
+		}
+		$existing = get_option( $option, array() );
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+		$allowed = array_merge( $allowed_by_group[ $option ], $dynamic );
+		$touched = false;
+
+		foreach ( $fields as $key => $value ) {
+			if ( ! in_array( $key, $allowed, true ) ) {
+				continue;
+			}
+			$before = $existing[ $key ] ?? null;
+			if ( $before === $value ) {
+				continue;
+			}
+			$changes[] = array(
+				'option' => $option,
+				'key'    => $key,
+				'before' => $before,
+				'after'  => $value,
+			);
+			$existing[ $key ] = $value;
+			$touched          = true;
+		}
+
+		if ( $touched && ! $dry_run ) {
+			update_option( $option, $existing );
+		}
+	}
+
+	if ( ! $dry_run && ! empty( $changes ) && function_exists( 'rank_math' ) ) {
+		// Rank Math caches its options, so a write without this shows the old values
+		// until something else clears it.
+		wp_cache_delete( 'rank_math_options_titles', 'options' );
+		wp_cache_delete( 'rank_math_options_general', 'options' );
+		wp_cache_delete( 'rank_math_options_sitemap', 'options' );
+	}
+
+	return array(
+		'preview'      => $dry_run,
+		'changes'      => $changes,
+		'changed'      => count( $changes ),
+		'post_types'   => array_values( get_post_types( array( 'public' => true ), 'names' ) ),
+	);
+}
+
 function ranki_local_seo_writable_keys(): array {
 	return array(
 		'knowledgegraph_name',
