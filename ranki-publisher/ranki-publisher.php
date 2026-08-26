@@ -446,6 +446,12 @@ function ranki_process_queue() {
 				// Lets Ranki tie this key to one site. A cloned or restored copy carries
 				// the same key, and would otherwise claim articles meant for the original.
 				'X-Ranki-Site'            => get_site_url(),
+				// Which SEO plugin is really here. Ranki's own record is set at onboarding
+				// and goes stale the moment someone migrates Yoast to Rank Math, and a stale
+				// record means every article gets the other plugin's meta keys and publishes
+				// with an empty SEO title that nothing reports. Sent on every check-in so a
+				// mismatch surfaces on its own instead of being found weeks later.
+				'X-Ranki-Seo-Plugin'      => ranki_active_seo_plugin() ?: 'none',
 			),
 		)
 	);
