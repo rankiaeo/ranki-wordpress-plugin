@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.12.0
+ * Version:           1.13.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.12.0' );
+define( 'RANKI_VERSION', '1.13.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -556,7 +556,9 @@ function ranki_process_single_job( array $job, string $api_base, string $key ) {
 			if ( is_wp_error( $result ) ) {
 				ranki_report_job_done( $api_base, $key, $job_id, false, 0, '', $result->get_error_message() );
 			} else {
-				ranki_report_job_done( $api_base, $key, $job_id, true, 0, '', '' );
+				// Reported rather than discarded, because on Yoast the answer includes the
+				// facts it has nowhere to put. A silent success there reads as "written".
+				ranki_report_job_done( $api_base, $key, $job_id, true, 0, wp_json_encode( $result ), '' );
 			}
 		} elseif ( 'export-leads' === $action ) {
 			// Reports its own job status to /wp-sync/leads-export (which stashes a
@@ -1382,6 +1384,315 @@ function ranki_dynamic_post_type_keys(): array {
 }
 
 /**
+ * Which SEO plugin this site actually runs.
+ *
+ * Ranki holds its own record of this, set at onboarding, and that record goes stale the
+ * day a client switches plugins. Writing Rank Math options to a Yoast site does not fail,
+ * it writes an option nothing reads, and the admin screen reports a change that had no
+ * effect. So the site itself is asked, and a mismatch is an error rather than a silent no-op.
+ *
+ * @return string 'rankmath', 'yoast' or '' when neither is active.
+ */
+function ranki_active_seo_plugin(): string {
+	if ( defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' ) ) {
+		return 'rankmath';
+	}
+	if ( defined( 'WPSEO_VERSION' ) || defined( 'WPSEO_FILE' ) ) {
+		return 'yoast';
+	}
+	return '';
+}
+
+/**
+ * Yoast settings Ranki may write, grouped by the option they live in.
+ *
+ * Same rule as the Rank Math list: an allowlist, because these options also carry the
+ * site's own title templates, separators and archive choices.
+ *
+ * Two differences from Rank Math worth knowing, because they change what can be offered.
+ * Yoast has no per-post-type sitemap toggle, its sitemap carries whatever is indexable, so
+ * a noindex here removes the type from the sitemap as well. And Yoast keeps its indexing
+ * settings as real booleans, not the "on"/"off" strings Rank Math stores.
+ *
+ * @return array<string, string[]>
+ */
+function ranki_yoast_seo_config_writable_keys(): array {
+	return array(
+		// Indexing and structure. Yoast keeps both in wpseo_titles.
+		'wpseo_titles' => array(
+			// disable-* turns the archive off entirely and redirects it, which is what
+			// Rank Math's disable_date_archives does. Stronger than a noindex and the
+			// right call on a business site with one author.
+			'disable-attachment', 'disable-author', 'disable-date', 'disable-post_format',
+			'noindex-author-wpseo', 'noindex-author-noposts-wpseo', 'noindex-archive-wpseo',
+			'noindex-tax-category', 'noindex-tax-post_tag', 'noindex-tax-post_format',
+			'breadcrumbs-enable', 'breadcrumbs-home', 'breadcrumbs-sep',
+		),
+		// Site-wide switches.
+		'wpseo'        => array(
+			'enable_xml_sitemap', 'enable_index_now', 'enable_llms_txt',
+			'enable_cornerstone_content', 'enable_text_link_counter',
+			// Yoast can add its own Disallow lines for the AI crawlers. Ranki is sold on
+			// being readable by assistants, so these stay off.
+			'deny_gptbot_crawling', 'deny_ccbot_crawling', 'deny_google_extended_crawling',
+		),
+	);
+}
+
+/**
+ * Yoast keys that only exist once a site registers the post type or taxonomy.
+ *
+ * @return string[]
+ */
+function ranki_yoast_dynamic_keys(): array {
+	$keys = array();
+	foreach ( get_post_types( array( 'public' => true ), 'names' ) as $pt ) {
+		$keys[] = "noindex-{$pt}";
+		$keys[] = "display-metabox-pt-{$pt}";
+		// What schema a page of this type carries. Yoast splits it in two: every page gets
+		// a page type, and only Article-ish types get an article type.
+		$keys[] = "schema-page-type-{$pt}";
+		$keys[] = "schema-article-type-{$pt}";
+	}
+	foreach ( get_taxonomies( array( 'public' => true ), 'names' ) as $tax ) {
+		$keys[] = "noindex-tax-{$tax}";
+	}
+	return $keys;
+}
+
+/**
+ * Business facts Ranki may write into Yoast.
+ *
+ * Deliberately shorter than the Rank Math list. Yoast free has no address, opening hours,
+ * price range or LocalBusiness subtype, those live in the paid Yoast Local SEO addon and
+ * in a different option again. Writing them here would write keys nothing reads, so they
+ * are not offered rather than offered and quietly dropped.
+ *
+ * @return array<string, string[]>
+ */
+function ranki_yoast_local_seo_writable_keys(): array {
+	return array(
+		'wpseo_titles' => array(
+			'company_or_person', 'company_name', 'company_alternate_name',
+			'company_logo', 'company_logo_id',
+			'website_name', 'alternate_website_name',
+			'org-description', 'org-email', 'org-phone', 'org-legal-name',
+		),
+		'wpseo_social' => array(
+			'facebook_site', 'instagram_url', 'linkedin_url', 'youtube_url',
+			'twitter_site', 'pinterest_url', 'wikipedia_url', 'other_social_urls',
+			'og_default_image', 'og_default_image_id',
+		),
+	);
+}
+
+/**
+ * Read one Yoast setting, defaults included.
+ *
+ * Yoast only stores a key once it differs from its default, so reading the raw option
+ * reports "nothing set" for a value the site is very much using. That turns a diff into a
+ * list of changes that are not changes.
+ *
+ * @param string $key The Yoast option key.
+ * @return mixed
+ */
+function ranki_yoast_get( string $key ) {
+	if ( class_exists( 'WPSEO_Options' ) && method_exists( 'WPSEO_Options', 'get' ) ) {
+		return WPSEO_Options::get( $key, null );
+	}
+	return null;
+}
+
+/**
+ * Write one Yoast setting through Yoast's own API.
+ *
+ * WPSEO_Options::set() finds the option group the key belongs to and runs Yoast's own
+ * save on it, which validates, persists and clears the cache. A raw update_option would
+ * skip all three.
+ *
+ * It also has a trap worth naming. A key this Yoast version has never heard of matches
+ * neither its lookup table nor its key patterns, so set() stores the value in a static
+ * array for the rest of the request and returns null. Nothing is written and nothing
+ * complains. enable_llms_txt is exactly that on any Yoast older than 25.x. So the return
+ * is checked rather than assumed, and an unknown key is reported as skipped instead of
+ * counted as a change that landed.
+ *
+ * @param string $key   The Yoast option key.
+ * @param mixed  $value The value to store.
+ * @return string 'saved', 'unknown' when this Yoast has no such setting, or 'failed'.
+ */
+function ranki_yoast_set( string $key, $value ): string {
+	if ( ! class_exists( 'WPSEO_Options' ) || ! method_exists( 'WPSEO_Options', 'set' ) ) {
+		return 'failed';
+	}
+	$result = WPSEO_Options::set( $key, $value );
+	if ( null === $result ) {
+		return 'unknown';
+	}
+	return $result ? 'saved' : 'failed';
+}
+
+/**
+ * Apply a Yoast configuration, returning what each value was beforehand.
+ *
+ * @param array $payload Job payload with a `groups` map of option => fields.
+ * @return array|WP_Error
+ */
+function ranki_apply_yoast_config( array $payload ) {
+	$groups = $payload['groups'] ?? array();
+
+	if ( ! class_exists( 'WPSEO_Options' ) || ! method_exists( 'WPSEO_Options', 'set' ) ) {
+		return new WP_Error(
+			'yoast_too_old',
+			__( 'This Yoast SEO version is too old for Ranki to configure it. Update Yoast SEO.', 'ranki-publisher' ),
+			array( 'status' => 400 )
+		);
+	}
+
+	$allowed_by_group = ranki_yoast_seo_config_writable_keys();
+	$dynamic          = ranki_yoast_dynamic_keys();
+	$dry_run          = ! empty( $payload['preview'] );
+	$changes          = array();
+	$skipped          = array();
+
+	foreach ( $groups as $option => $fields ) {
+		if ( ! isset( $allowed_by_group[ $option ] ) || ! is_array( $fields ) ) {
+			continue;
+		}
+		$allowed = array_merge( $allowed_by_group[ $option ], $dynamic );
+
+		foreach ( $fields as $key => $value ) {
+			if ( ! in_array( $key, $allowed, true ) ) {
+				$skipped[] = $key;
+				continue;
+			}
+			$before = ranki_yoast_get( $key );
+			// Loose comparison on purpose. Yoast stores booleans, and a value that arrived
+			// over JSON as true against a stored true is the same setting whatever PHP
+			// thinks of the types.
+			if ( null !== $before && $before == $value ) { // phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison
+				continue;
+			}
+			if ( ! $dry_run ) {
+				$status = ranki_yoast_set( $key, $value );
+				if ( 'saved' !== $status ) {
+					$skipped[] = $key;
+					continue;
+				}
+			}
+			$changes[] = array(
+				'option' => $option,
+				'key'    => $key,
+				'before' => $before,
+				'after'  => $value,
+			);
+		}
+	}
+
+	if ( ! $dry_run && ! empty( $changes ) && method_exists( 'WPSEO_Options', 'clear_cache' ) ) {
+		WPSEO_Options::clear_cache();
+	}
+
+	return array(
+		'plugin'     => 'yoast',
+		'preview'    => $dry_run,
+		'changes'    => $changes,
+		'changed'    => count( $changes ),
+		// Keys this Yoast version does not have, or refused. Reported rather than swallowed:
+		// a setting that did not land and one that was never sent look the same otherwise.
+		'skipped'    => array_values( array_unique( $skipped ) ),
+		'post_types' => array_values( get_post_types( array( 'public' => true ), 'names' ) ),
+		'taxonomies' => array_values( get_taxonomies( array( 'public' => true ), 'names' ) ),
+	);
+}
+
+/**
+ * Write a client's business facts into Yoast's site representation.
+ *
+ * Yoast free publishes an Organization, not a LocalBusiness, so there is nowhere for an
+ * address, opening hours or a price range to go. Those keys are reported back as unsupported
+ * rather than dropped in silence, because "we wrote it" and "Yoast cannot hold it" look
+ * identical from Ranki's side otherwise.
+ *
+ * @param array $payload Job payload with `fields` and optional `social`.
+ * @return array|WP_Error
+ */
+function ranki_apply_yoast_local_seo( array $payload ) {
+	$fields = $payload['fields'] ?? array();
+	$social = $payload['social'] ?? array();
+
+	if ( ! is_array( $fields ) ) {
+		$fields = array();
+	}
+	if ( ! is_array( $social ) ) {
+		$social = array();
+	}
+	if ( empty( $fields ) && empty( $social ) ) {
+		return new WP_Error( 'missing_fields', __( 'fields is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+	if ( ! class_exists( 'WPSEO_Options' ) || ! method_exists( 'WPSEO_Options', 'set' ) ) {
+		return new WP_Error(
+			'yoast_too_old',
+			__( 'This Yoast SEO version is too old for Ranki to configure it. Update Yoast SEO.', 'ranki-publisher' ),
+			array( 'status' => 400 )
+		);
+	}
+
+	$allowed_by_group = ranki_yoast_local_seo_writable_keys();
+	$written          = array();
+	$unsupported      = array();
+	$not_stored       = array();
+
+	foreach ( array( 'wpseo_titles' => $fields, 'wpseo_social' => $social ) as $option => $values ) {
+		foreach ( $values as $key => $value ) {
+			if ( ! in_array( $key, $allowed_by_group[ $option ], true ) ) {
+				$unsupported[] = $key;
+				continue;
+			}
+			// An empty value means Ranki does not hold that fact. Leaving whatever is
+			// already on the site is always better than blanking it.
+			if ( '' === $value || null === $value || array() === $value ) {
+				continue;
+			}
+			$status = ranki_yoast_set(
+				$key,
+				is_array( $value ) ? map_deep( $value, 'sanitize_text_field' ) : sanitize_text_field( $value )
+			);
+			if ( 'saved' !== $status ) {
+				// Not the same as "Ranki is not allowed to write this". This Yoast version
+				// has no such setting, which is a different problem with a different fix.
+				$not_stored[] = $key;
+				continue;
+			}
+			$written[] = $key;
+		}
+	}
+
+	if ( empty( $written ) ) {
+		return new WP_Error( 'nothing_to_write', __( 'No writable fields had a value', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+
+	if ( method_exists( 'WPSEO_Options', 'clear_cache' ) ) {
+		WPSEO_Options::clear_cache();
+	}
+
+	// The schema is rendered into <head> on the front page, so a cached homepage keeps
+	// serving the old markup until the cache is dropped.
+	$front_id = (int) get_option( 'page_on_front' );
+	if ( $front_id ) {
+		ranki_purge_cache( $front_id, get_permalink( $front_id ) );
+	}
+
+	return array(
+		'ok'          => true,
+		'plugin'      => 'yoast',
+		'written'     => $written,
+		'unsupported' => array_values( array_unique( $unsupported ) ),
+		'not_stored'  => array_values( array_unique( $not_stored ) ),
+	);
+}
+
+/**
  * Apply a Rank Math configuration, returning what each value was beforehand.
  *
  * The before values are the point: Ranki shows them as a diff so a human approves
@@ -1396,8 +1707,27 @@ function ranki_apply_seo_config( array $payload ) {
 		return new WP_Error( 'missing_groups', __( 'groups is required', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
-	if ( ! defined( 'RANK_MATH_VERSION' ) && ! class_exists( 'RankMath' ) ) {
-		return new WP_Error( 'no_rank_math', __( 'Rank Math is not active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	// Ranki names the plugin it built the payload for. The site is still asked, because
+	// Ranki's record of which plugin a client runs is set at onboarding and goes stale the
+	// day they switch. Writing Rank Math keys to a Yoast site is not an error anything
+	// notices, it just writes options nothing reads.
+	$active = ranki_active_seo_plugin();
+	$wanted = $payload['plugin'] ?? $active;
+
+	if ( '' === $active ) {
+		return new WP_Error( 'no_seo_plugin', __( 'Neither Rank Math nor Yoast SEO is active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+	if ( $wanted !== $active ) {
+		return new WP_Error(
+			'seo_plugin_mismatch',
+			/* translators: 1: SEO plugin Ranki expected, 2: SEO plugin actually active. */
+			sprintf( __( 'Ranki has this site down as %1$s, but %2$s is what is active. Fix the SEO plugin on the client record first.', 'ranki-publisher' ), $wanted, $active ),
+			array( 'status' => 400 )
+		);
+	}
+
+	if ( 'yoast' === $active ) {
+		return ranki_apply_yoast_config( $payload );
 	}
 
 	$allowed_by_group = ranki_seo_config_writable_keys();
@@ -1448,6 +1778,7 @@ function ranki_apply_seo_config( array $payload ) {
 	}
 
 	return array(
+		'plugin'       => 'rankmath',
 		'preview'      => $dry_run,
 		'changes'      => $changes,
 		'changed'      => count( $changes ),
@@ -1516,12 +1847,28 @@ function ranki_general_writable_keys(): array {
  */
 function ranki_apply_local_seo( array $payload ) {
 	$fields = $payload['fields'] ?? array();
-	if ( ! is_array( $fields ) || empty( $fields ) ) {
-		return new WP_Error( 'missing_fields', __( 'fields is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+
+	$active = ranki_active_seo_plugin();
+	$wanted = $payload['plugin'] ?? $active;
+
+	if ( '' === $active ) {
+		return new WP_Error( 'no_seo_plugin', __( 'Neither Rank Math nor Yoast SEO is active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	}
+	if ( $wanted !== $active ) {
+		return new WP_Error(
+			'seo_plugin_mismatch',
+			/* translators: 1: SEO plugin Ranki expected, 2: SEO plugin actually active. */
+			sprintf( __( 'Ranki has this site down as %1$s, but %2$s is what is active. Fix the SEO plugin on the client record first.', 'ranki-publisher' ), $wanted, $active ),
+			array( 'status' => 400 )
+		);
 	}
 
-	if ( ! defined( 'RANK_MATH_VERSION' ) && ! class_exists( 'RankMath' ) ) {
-		return new WP_Error( 'no_rank_math', __( 'Rank Math is not active on this site', 'ranki-publisher' ), array( 'status' => 400 ) );
+	if ( 'yoast' === $active ) {
+		return ranki_apply_yoast_local_seo( $payload );
+	}
+
+	if ( ! is_array( $fields ) || empty( $fields ) ) {
+		return new WP_Error( 'missing_fields', __( 'fields is required', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
 	$existing = get_option( 'rank_math_options_titles', array() );

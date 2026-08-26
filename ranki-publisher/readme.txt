@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,10 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.13.0 =
+* Yoast SEO sites are now set up the same way Rank Math sites already were: your business details, what Google indexes, breadcrumbs, your sitemap and llms.txt for AI assistants. You approve every change before it is written.
+* Ranki now checks which SEO plugin your site actually runs before writing anything, so a settings change can no longer land in a plugin you are not using.
 
 = 1.12.0 =
 * Service and product pages now carry the right schema instead of the default article schema.
