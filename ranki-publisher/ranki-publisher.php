@@ -1427,14 +1427,24 @@ function ranki_yoast_seo_config_writable_keys(): array {
 			'noindex-author-wpseo', 'noindex-author-noposts-wpseo', 'noindex-archive-wpseo',
 			'noindex-tax-category', 'noindex-tax-post_tag', 'noindex-tax-post_format',
 			'breadcrumbs-enable', 'breadcrumbs-home', 'breadcrumbs-sep',
+			// The most visible line a business has in search. Ranki only ever proposes one
+			// when what is there now is clearly a Yoast default, never when someone wrote it.
+			'title-home-wpseo', 'metadesc-home-wpseo',
 		),
 		// Site-wide switches.
 		'wpseo'        => array(
-			'enable_xml_sitemap', 'enable_index_now', 'enable_llms_txt',
+			'enable_xml_sitemap', 'enable_index_now', 'enable_llms_txt', 'enable_schema',
 			'enable_cornerstone_content', 'enable_text_link_counter',
 			// Yoast can add its own Disallow lines for the AI crawlers. Ranki is sold on
-			// being readable by assistants, so these stay off.
+			// being readable by assistants, so these stay off. deny_wp_json_crawling is in
+			// the same family for a different reason: it blocks the endpoint Ranki reads
+			// the site's post types through.
 			'deny_gptbot_crawling', 'deny_ccbot_crawling', 'deny_google_extended_crawling',
+			'deny_wp_json_crawling', 'deny_search_crawling',
+		),
+		// Whether the site emits Open Graph and Twitter cards at all.
+		'wpseo_social' => array(
+			'opengraph', 'twitter',
 		),
 	);
 }
@@ -1453,6 +1463,10 @@ function ranki_yoast_dynamic_keys(): array {
 		// a page type, and only Article-ish types get an article type.
 		$keys[] = "schema-page-type-{$pt}";
 		$keys[] = "schema-article-type-{$pt}";
+		// The archive that lists a post type is a separate page and a separate setting from
+		// the single. Noindexing testimonials while leaving /testimonials/ indexed is the
+		// same thin content one URL further out.
+		$keys[] = "noindex-ptarchive-{$pt}";
 	}
 	foreach ( get_taxonomies( array( 'public' => true ), 'names' ) as $tax ) {
 		$keys[] = "noindex-tax-{$tax}";
