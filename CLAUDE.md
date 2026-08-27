@@ -127,7 +127,6 @@ Then downscale with `sips -z 250 772`. Edit the HTML, re-render, copy the PNGs i
 
 ## Daniel's preferences
 
-- No em dashes — ever.
-- No over-engineering. The plugin is intentionally simple and self-contained.
-- No unnecessary comments.
-- Test on ONE client before rolling any change to all clients.
+Single source of truth: `~/.claude/CLAUDE.md`. Read and follow that, do not restate it here.
+Reply style, working style and the no-em-dash rule all live there.
+
