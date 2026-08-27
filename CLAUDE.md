@@ -1,4 +1,4 @@
-# Ranki WordPress Plugin — Claude Code Briefing
+# Ranki WordPress Plugin, Claude Code Briefing
 
 ## What this repo is
 
@@ -16,21 +16,21 @@ The `docs/` folder in this repo is the current source of truth. `docs/HANDOVER.m
 
 ## How it works (pull-queue design)
 
-WordPress polls Ranki every 5 minutes — Ranki does NOT push to WordPress. This is intentional and critical.
+WordPress polls Ranki every 5 minutes, Ranki does NOT push to WordPress. This is intentional and critical.
 
 ```
 WordPress cron (every 5 min) → GET Ranki backend → "any jobs for me?" → execute job → POST result back
 ```
 
-This design works around host firewalls (SiteGround etc.) that block inbound traffic. **Do not change this to a push model** — it would break publishing for at least half the client base.
+This design works around host firewalls (SiteGround etc.) that block inbound traffic. **Do not change this to a push model**: it would break publishing for at least half the client base.
 
 ---
 
-## Critical rules — never break these
+## Critical rules, never break these
 
 - **Pull-queue is intentional.** WP polls Ranki, not the other way around. See above.
-- **SEO meta is written twice.** `meta_input` at `wp_insert_post()` time AND again with `update_post_meta()` afterward. This is belt-and-suspenders — some WP plugins clear meta on the `save_post` hook. Do not simplify this to one call.
-- **JSON-LD schema goes in `<head>` via `wp_head` hook**, not in post body. WordPress's `wp_kses_post()` strips `<script>` tags from post content. Schema is stored in `_ranki_schema_jsonld` post meta and output via the hook. Correct approach — do not move it into the post body.
+- **SEO meta is written twice.** `meta_input` at `wp_insert_post()` time AND again with `update_post_meta()` afterward. This is belt-and-suspenders, some WP plugins clear meta on the `save_post` hook. Do not simplify this to one call.
+- **JSON-LD schema goes in `<head>` via `wp_head` hook**, not in post body. WordPress's `wp_kses_post()` strips `<script>` tags from post content. Schema is stored in `_ranki_schema_jsonld` post meta and output via the hook. Correct approach, do not move it into the post body.
 - **Two endpoint paths must both work.** REST (`/wp-json/ranki/v1/publish`) is preferred. Query-string (`/?ranki_action=publish`) is the fallback for hosts that block `/wp-json/`. Both execute the same handler. If you change logic, change it once in the shared handler function.
 - **Never change the pull interval without telling Daniel.** The 5-min cron is relied on by Railway's monitoring.
 - **Version bump requires updating three things:** the plugin header Version field, the `RANKI_VERSION` constant, and `Stable tag:` in `readme.txt`. All three must match or WP.org serves the wrong version.
@@ -55,7 +55,7 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 |----------|-------|---------|
 | `RANKI_VERSION` | `1.8.4` | Plugin version, bump on every release |
 | `RANKI_OPTION_KEY` | `ranki_secret_key` | wp_options key for the secret |
-| `RANKI_API_BASE` | `https://ranki-backend-production.up.railway.app/api` | Backend URL — update if Railway URL changes |
+| `RANKI_API_BASE` | `https://ranki-backend-production.up.railway.app/api` | Backend URL, update if Railway URL changes |
 
 ---
 
@@ -63,7 +63,7 @@ This design works around host firewalls (SiteGround etc.) that block inbound tra
 
 | Function | Purpose |
 |----------|---------|
-| `ranki_handle_publish()` | Main publish handler — creates WP post, sets SEO meta, outputs schema |
+| `ranki_handle_publish()` | Main publish handler, creates WP post, sets SEO meta, outputs schema |
 | `ranki_handle_update_content()` | Updates existing post content |
 | `ranki_handle_upload_image()` | Downloads + attaches image to post |
 | `ranki_settings_page()` | WP admin settings page (shows URL + secret key) |
@@ -117,11 +117,11 @@ Then downscale with `sips -z 250 772`. Edit the HTML, re-render, copy the PNGs i
 
 ## Debugging a client whose posts stopped publishing
 
-1. Check Railway logs — is the backend trying to send jobs to this client?
+1. Check Railway logs, is the backend trying to send jobs to this client?
 2. Check the client's WP site is up
 3. Check the secret key in Ranki admin matches `wp_options['ranki_secret_key']` on the client's WP site
 4. Check if the client's host recently updated their firewall (may need Cloudflare proxy path)
-5. Check WP-Cron is running — visit `yoursite.com/wp-cron.php` directly
+5. Check WP-Cron is running, visit `yoursite.com/wp-cron.php` directly
 
 ---
 
