@@ -2131,6 +2131,7 @@ function ranki_handle_event( WP_REST_Request $request ) {
 	$nonce      = sanitize_text_field( $params['nonce'] ?? '' );
 	$event_type = sanitize_text_field( $params['type'] ?? '' );
 	$page_url   = esc_url_raw( $params['page_url'] ?? '' );
+	$landing    = esc_url_raw( $params['landing_url'] ?? '' );
 	$form_type  = sanitize_text_field( $params['form_type'] ?? '' );
 	$phone      = sanitize_text_field( $params['phone_number'] ?? '' );
 	$timestamp  = sanitize_text_field( $params['timestamp'] ?? '' );
@@ -2174,6 +2175,7 @@ function ranki_handle_event( WP_REST_Request $request ) {
 			'body'      => wp_json_encode( array(
 				'type'         => $event_type,
 				'page_url'     => $page_url,
+				'landing_url'  => $landing ?: null,
 				'form_type'    => $form_type ?: null,
 				'phone_number' => $phone ?: null,
 				'timestamp'    => $timestamp,
