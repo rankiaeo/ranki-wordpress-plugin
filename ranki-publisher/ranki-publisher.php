@@ -973,7 +973,8 @@ function ranki_kses_content( $content ) {
 		'referrerpolicy'  => true,
 	);
 
-	$clean = wp_kses( $content, $allowed, array( 'https' ) );
+	// Default protocol list: restricting it here would strip mailto: and tel: links.
+	$clean = wp_kses( $content, $allowed );
 
 	// Drop any iframe whose src is not a trusted video host.
 	return preg_replace_callback(
