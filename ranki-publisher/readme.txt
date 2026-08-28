@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.0
+Stable tag: 1.14.1
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.14.1 =
+* Fixed: article videos were being removed at publish time. YouTube and Vimeo embeds now survive.
 
 = 1.14.0 =
 * Enquiry reports now credit the page a visitor arrived on, not the page holding the form. An article that brought someone to your site who then enquired from your contact page is finally counted as the article that earned it.

@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.0
+ * Version:           1.14.1
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.0' );
+define( 'RANKI_VERSION', '1.14.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -947,6 +947,48 @@ function ranki_handle_upload_image( WP_REST_Request $request ) {
 }
 
 /**
+ * Sanitize post content, allowing video embeds from trusted providers.
+ *
+ * wp_kses_post() strips <iframe> outright, which silently deleted every
+ * article video Ranki embeds. Allow iframes only when the src points at a
+ * known video host.
+ *
+ * @param string $content Raw HTML.
+ * @return string Sanitized HTML.
+ */
+function ranki_kses_content( $content ) {
+	$allowed = wp_kses_allowed_html( 'post' );
+
+	$allowed['iframe'] = array(
+		'src'             => true,
+		'title'           => true,
+		'width'           => true,
+		'height'          => true,
+		'style'           => true,
+		'class'           => true,
+		'loading'         => true,
+		'frameborder'     => true,
+		'allow'           => true,
+		'allowfullscreen' => true,
+		'referrerpolicy'  => true,
+	);
+
+	$clean = wp_kses( $content, $allowed, array( 'https' ) );
+
+	// Drop any iframe whose src is not a trusted video host.
+	return preg_replace_callback(
+		'#<iframe\b[^>]*>.*?</iframe>#is',
+		function ( $m ) {
+			if ( preg_match( '#\ssrc=["\']https://(?:www\.)?(?:youtube\.com/embed/|youtube-nocookie\.com/embed/|player\.vimeo\.com/)#i', $m[0] ) ) {
+				return $m[0];
+			}
+			return '';
+		},
+		$clean
+	);
+}
+
+/**
  * REST callback: publish a new post with SEO metadata and optional featured image.
  *
  * @param WP_REST_Request $request REST request object.
@@ -956,7 +998,7 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 	$params = $request->get_json_params();
 
 	$title      = sanitize_text_field( $params['title'] ?? '' );
-	$content    = wp_kses_post( $params['content'] ?? '' );
+	$content    = ranki_kses_content( $params['content'] ?? '' );
 	// Slug: preserve non-ASCII scripts (Hebrew, Arabic, etc.) that sanitize_title() strips.
 	$raw_slug = trim( $params['slug'] ?? '' );
 	if ( $raw_slug && preg_match( '/[^\x00-\x7F]/u', $raw_slug ) ) {
@@ -1258,7 +1300,7 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 	$result = wp_update_post(
 		array(
 			'ID'           => $post_id,
-			'post_content' => wp_kses_post( $content ),
+			'post_content' => ranki_kses_content( $content ),
 		),
 		true
 	);
