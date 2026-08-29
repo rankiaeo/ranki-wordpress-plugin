@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.2
+ * Version:           1.14.3
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.2' );
+define( 'RANKI_VERSION', '1.14.3' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -990,6 +990,39 @@ function ranki_kses_content( $content ) {
 }
 
 /**
+ * Allow trusted video iframes through WordPress's own save-time KSES pass.
+ *
+ * ranki_kses_content() is not the last word: wp_insert_post()/wp_update_post()
+ * run core's wp_filter_post_kses on post_content, and because these REST calls
+ * authenticate with the Ranki key rather than a WordPress user, the request has
+ * no unfiltered_html capability. Core therefore stripped the <iframe> again,
+ * after our sanitizer had already approved it, which silently deleted every
+ * article video. Enabled only around our own write, then removed.
+ *
+ * @param array  $tags    Allowed tags.
+ * @param string $context KSES context.
+ * @return array
+ */
+function ranki_allow_video_iframe( $tags, $context ) {
+	if ( 'post' === $context ) {
+		$tags['iframe'] = array(
+			'src'             => true,
+			'title'           => true,
+			'width'           => true,
+			'height'          => true,
+			'style'           => true,
+			'class'           => true,
+			'loading'         => true,
+			'frameborder'     => true,
+			'allow'           => true,
+			'allowfullscreen' => true,
+			'referrerpolicy'  => true,
+		);
+	}
+	return $tags;
+}
+
+/**
  * Return a slug that no category, tag, or top-level page already owns.
  *
  * wp_insert_post() only de-duplicates a post slug against other posts, so a term
@@ -1242,7 +1275,9 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 		$post_data['post_category'] = $category_ids;
 	}
 
+	add_filter( 'wp_kses_allowed_html', 'ranki_allow_video_iframe', 10, 2 );
 	$post_id = wp_insert_post( $post_data, true );
+	remove_filter( 'wp_kses_allowed_html', 'ranki_allow_video_iframe', 10 );
 	if ( is_wp_error( $post_id ) ) {
 		return $post_id;
 	}
@@ -1371,7 +1406,9 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 		$update['post_name'] = ranki_free_slug( $new_slug, $post->post_title );
 	}
 
+	add_filter( 'wp_kses_allowed_html', 'ranki_allow_video_iframe', 10, 2 );
 	$result = wp_update_post( $update, true );
+	remove_filter( 'wp_kses_allowed_html', 'ranki_allow_video_iframe', 10 );
 
 	if ( is_wp_error( $result ) ) {
 		return $result;
