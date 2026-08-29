@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.1
+Stable tag: 1.14.2
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.14.2 =
+* Fixed: an article could publish onto a URL already owned by a category, tag, or page, which left the article unreachable at its own address. It now moves to a free URL based on its title.
 
 = 1.14.1 =
 * Fixed: article videos were being removed at publish time. YouTube and Vimeo embeds now survive.

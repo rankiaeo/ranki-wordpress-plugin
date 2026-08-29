@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.1
+ * Version:           1.14.2
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.1' );
+define( 'RANKI_VERSION', '1.14.2' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -990,6 +990,74 @@ function ranki_kses_content( $content ) {
 }
 
 /**
+ * Return a slug that no category, tag, or top-level page already owns.
+ *
+ * wp_insert_post() only de-duplicates a post slug against other posts, so a term
+ * or page archive sharing the slug silently shadows the new article's permalink.
+ *
+ * @param string $slug  Desired slug.
+ * @param string $title Article title, used to build a readable alternative.
+ * @return string A slug free of term/page collisions.
+ */
+function ranki_free_slug( $slug, $title = '' ) {
+	if ( '' === $slug ) {
+		return $slug;
+	}
+
+	$taken = function ( $candidate ) {
+		if ( '' === $candidate ) {
+			return true;
+		}
+		foreach ( get_taxonomies( array( 'public' => true ), 'names' ) as $taxonomy ) {
+			if ( get_term_by( 'slug', $candidate, $taxonomy ) ) {
+				return true;
+			}
+		}
+		return (bool) get_page_by_path( $candidate, OBJECT, 'page' );
+	};
+
+	if ( ! $taken( $slug ) ) {
+		return $slug;
+	}
+
+	// Prefer a slug built from the article's own title: it stays in the article's
+	// language and reads like a real URL, where "-2" reads like a mistake.
+	$from_title = ranki_slugify( $title );
+	if ( $from_title && $from_title !== $slug && ! $taken( $from_title ) ) {
+		return $from_title;
+	}
+
+	for ( $i = 2; $i <= 20; $i++ ) {
+		$candidate = $slug . '-' . $i;
+		if ( ! $taken( $candidate ) ) {
+			return $candidate;
+		}
+	}
+
+	return $slug;
+}
+
+/**
+ * Slugify a string, preserving non-ASCII scripts that sanitize_title() strips.
+ *
+ * @param string $text Raw text.
+ * @return string Slug.
+ */
+function ranki_slugify( $text ) {
+	$text = trim( (string) $text );
+	if ( '' === $text ) {
+		return '';
+	}
+	if ( ! preg_match( '/[^\x00-\x7F]/u', $text ) ) {
+		return sanitize_title( $text );
+	}
+	$text = mb_strtolower( $text, 'UTF-8' );
+	$text = preg_replace( '/\s+/u', '-', $text );
+	$text = preg_replace( '/[^\p{L}\p{N}\-]/u', '', $text );
+	return trim( $text, '-' );
+}
+
+/**
  * REST callback: publish a new post with SEO metadata and optional featured image.
  *
  * @param WP_REST_Request $request REST request object.
@@ -1000,19 +1068,13 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 
 	$title      = sanitize_text_field( $params['title'] ?? '' );
 	$content    = ranki_kses_content( $params['content'] ?? '' );
-	// Slug: preserve non-ASCII scripts (Hebrew, Arabic, etc.) that sanitize_title() strips.
-	$raw_slug = trim( $params['slug'] ?? '' );
-	if ( $raw_slug && preg_match( '/[^\x00-\x7F]/u', $raw_slug ) ) {
-		// Unicode slug — WordPress supports non-ASCII post_name natively.
-		// Lower-case, collapse whitespace to hyphens, strip anything that isn't
-		// a Unicode letter/number or a hyphen.
-		$slug = mb_strtolower( $raw_slug, 'UTF-8' );
-		$slug = preg_replace( '/\s+/u', '-', $slug );
-		$slug = preg_replace( '/[^\p{L}\p{N}\-]/u', '', $slug );
-		$slug = trim( $slug, '-' );
-	} else {
-		$slug = sanitize_title( $raw_slug );
-	}
+	// ranki_slugify() preserves non-ASCII scripts (Hebrew, Arabic, etc.) that
+	// sanitize_title() strips. WordPress supports non-ASCII post_name natively.
+	$slug = ranki_slugify( $params['slug'] ?? '' );
+	// WordPress only keeps post slugs unique against other posts. A category, tag, or
+	// page owning the same slug wins the URL, so the article publishes "successfully"
+	// and is then unreachable at its own permalink. Move off a taken slug before insert.
+	$slug = ranki_free_slug( $slug, $title );
 	$excerpt    = sanitize_text_field( $params['excerpt'] ?? '' );
 	$status     = in_array( $params['status'] ?? 'publish', array( 'publish', 'draft', 'pending' ), true )
 					? $params['status'] : 'publish';
@@ -1284,12 +1346,15 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 	$params  = $request->get_json_params();
 	$post_id = absint( $params['post_id'] ?? 0 );
 	$content = $params['content'] ?? '';
+	// Optional. Lets a permalink be repaired remotely when a category, tag, or page
+	// turns out to own the article's slug and shadow it.
+	$new_slug = ranki_slugify( $params['slug'] ?? '' );
 
 	if ( ! $post_id ) {
 		return new WP_Error( 'missing_post_id', __( 'post_id is required', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
-	if ( '' === $content ) {
-		return new WP_Error( 'missing_content', __( 'content is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	if ( '' === $content && '' === $new_slug ) {
+		return new WP_Error( 'missing_content', __( 'content or slug is required', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
 	$post = get_post( $post_id );
@@ -1298,21 +1363,28 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 		return new WP_Error( 'not_found', sprintf( __( 'Post %d not found', 'ranki-publisher' ), $post_id ), array( 'status' => 404 ) );
 	}
 
-	$result = wp_update_post(
-		array(
-			'ID'           => $post_id,
-			'post_content' => ranki_kses_content( $content ),
-		),
-		true
-	);
+	$update = array( 'ID' => $post_id );
+	if ( '' !== $content ) {
+		$update['post_content'] = ranki_kses_content( $content );
+	}
+	if ( '' !== $new_slug ) {
+		$update['post_name'] = ranki_free_slug( $new_slug, $post->post_title );
+	}
+
+	$result = wp_update_post( $update, true );
 
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
 
+	$post_url = get_permalink( $post_id );
+	ranki_purge_cache( $post_id, $post_url );
+
 	return rest_ensure_response( array(
-		'ok'      => true,
-		'post_id' => $post_id,
+		'ok'       => true,
+		'post_id'  => $post_id,
+		'slug'     => get_post_field( 'post_name', $post_id ),
+		'post_url' => $post_url,
 	) );
 }
 
