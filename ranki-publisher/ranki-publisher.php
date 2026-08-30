@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.4
+ * Version:           1.14.5
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.4' );
+define( 'RANKI_VERSION', '1.14.5' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1487,6 +1487,11 @@ function ranki_clear_stale_redirect( $slug ) {
 	if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
 		return 0;
 	}
+	// WordPress stores a Hebrew or Arabic slug percent-encoded, and Rank Math may
+	// hold either spelling. Comparing one decoded against one encoded never matched,
+	// so the stale rule survived on exactly the sites that needed it gone.
+	$want = strtolower( rawurldecode( $slug ) );
+
 	$rows    = $wpdb->get_results( "SELECT id, sources FROM {$table}" ); // phpcs:ignore WordPress.DB
 	$removed = 0;
 	foreach ( (array) $rows as $row ) {
@@ -1496,8 +1501,8 @@ function ranki_clear_stale_redirect( $slug ) {
 		}
 		foreach ( $sources as $source ) {
 			$pattern = is_array( $source ) ? ( $source['pattern'] ?? '' ) : (string) $source;
-			$pattern = trim( rawurldecode( (string) $pattern ), '/' );
-			if ( '' !== $pattern && $pattern === $slug ) {
+			$pattern = strtolower( trim( rawurldecode( (string) $pattern ), '/' ) );
+			if ( '' !== $pattern && $pattern === $want ) {
 				$wpdb->delete( $table, array( 'id' => $row->id ) );
 				$wpdb->delete( $wpdb->prefix . 'rank_math_redirections_cache', array( 'redirection_id' => $row->id ) );
 				$removed++;

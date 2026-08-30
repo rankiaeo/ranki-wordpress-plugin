@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.4
+Stable tag: 1.14.5
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.14.5 =
+* Fixed: the leftover-redirect cleanup added in 1.14.4 never ran on Hebrew or Arabic sites, because WordPress and Rank Math spell the same address two different ways. Both spellings are now compared, so those articles stop bouncing to a dead address.
 
 = 1.14.4 =
 * Fixed: after an article was renamed back to its proper address, a redirect rule left over from the earlier rename sent that address to the home page. The rule is now removed when the address changes.
