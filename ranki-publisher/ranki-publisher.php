@@ -1448,15 +1448,64 @@ function ranki_handle_update_content( WP_REST_Request $request ) {
 		return $result;
 	}
 
+	$final_slug = get_post_field( 'post_name', $post_id );
+	if ( '' !== $new_slug ) {
+		// A rule left over from an earlier rename would send this address straight
+		// back to the one the article just moved off, leaving it unreachable.
+		ranki_clear_stale_redirect( $final_slug );
+	}
+
 	$post_url = get_permalink( $post_id );
 	ranki_purge_cache( $post_id, $post_url );
 
 	return rest_ensure_response( array(
 		'ok'       => true,
 		'post_id'  => $post_id,
-		'slug'     => get_post_field( 'post_name', $post_id ),
+		'slug'     => $final_slug,
 		'post_url' => $post_url,
 	) );
+}
+
+/**
+ * Delete a Rank Math redirect that would send an address away from its own article.
+ *
+ * Renaming an article makes Rank Math record a redirect from the old address to the
+ * new one. When a rename is later undone, that stored rule points the article's
+ * correct address at the wrong one and the article answers with another page or the
+ * home page. Rank Math offers no API for this, so the rule is removed directly.
+ *
+ * @param string $slug Slug the article should answer on.
+ * @return int Number of rules removed.
+ */
+function ranki_clear_stale_redirect( $slug ) {
+	global $wpdb;
+	$slug = trim( (string) $slug, '/' );
+	if ( '' === $slug ) {
+		return 0;
+	}
+	$table = $wpdb->prefix . 'rank_math_redirections';
+	if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		return 0;
+	}
+	$rows    = $wpdb->get_results( "SELECT id, sources FROM {$table}" ); // phpcs:ignore WordPress.DB
+	$removed = 0;
+	foreach ( (array) $rows as $row ) {
+		$sources = maybe_unserialize( $row->sources );
+		if ( ! is_array( $sources ) ) {
+			continue;
+		}
+		foreach ( $sources as $source ) {
+			$pattern = is_array( $source ) ? ( $source['pattern'] ?? '' ) : (string) $source;
+			$pattern = trim( rawurldecode( (string) $pattern ), '/' );
+			if ( '' !== $pattern && $pattern === $slug ) {
+				$wpdb->delete( $table, array( 'id' => $row->id ) );
+				$wpdb->delete( $wpdb->prefix . 'rank_math_redirections_cache', array( 'redirection_id' => $row->id ) );
+				$removed++;
+				break;
+			}
+		}
+	}
+	return $removed;
 }
 
 /**

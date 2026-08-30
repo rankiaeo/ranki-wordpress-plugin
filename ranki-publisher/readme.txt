@@ -92,6 +92,7 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 == Changelog ==
 
 = 1.14.4 =
+* Fixed: after an article was renamed back to its proper address, a redirect rule left over from the earlier rename sent that address to the home page. The rule is now removed when the address changes.
 * Fixed: long Hebrew and Arabic addresses were cut off mid-word, because WordPress stores a limited number of characters and every non-Latin letter uses six of them. Addresses are now shortened on a word boundary before saving.
 
 = 1.14.3 =
