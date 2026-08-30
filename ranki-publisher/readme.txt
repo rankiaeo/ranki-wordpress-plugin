@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.3
+Stable tag: 1.14.4
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.14.4 =
+* Fixed: long Hebrew and Arabic addresses were cut off mid-word, because WordPress stores a limited number of characters and every non-Latin letter uses six of them. Addresses are now shortened on a word boundary before saving.
 
 = 1.14.3 =
 * Fixed: article videos were still being removed. WordPress ran its own filter after the plugin's, so the embed was approved and then deleted a moment later.

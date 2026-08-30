@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.3
+ * Version:           1.14.4
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.3' );
+define( 'RANKI_VERSION', '1.14.4' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1082,12 +1082,46 @@ function ranki_slugify( $text ) {
 		return '';
 	}
 	if ( ! preg_match( '/[^\x00-\x7F]/u', $text ) ) {
-		return sanitize_title( $text );
+		return ranki_trim_slug( sanitize_title( $text ) );
 	}
 	$text = mb_strtolower( $text, 'UTF-8' );
 	$text = preg_replace( '/\s+/u', '-', $text );
 	$text = preg_replace( '/[^\p{L}\p{N}\-]/u', '', $text );
-	return trim( $text, '-' );
+	$text = preg_replace( '/-{2,}/u', '-', $text );
+	return ranki_trim_slug( trim( $text, '-' ) );
+}
+
+/**
+ * Keep a slug inside the length WordPress stores, cutting on a word boundary.
+ *
+ * post_name holds the percent-encoded slug in a 200 character column and WordPress
+ * chops the overflow wherever it lands. One Hebrew letter costs six characters
+ * there, so an ordinary Hebrew title overflows and the address ends on half a word.
+ *
+ * @param string $slug Slug to shorten.
+ * @return string Slug that survives the save intact.
+ */
+function ranki_trim_slug( $slug ) {
+	$max = 190;
+	if ( '' === $slug || strlen( rawurlencode( $slug ) ) <= $max ) {
+		return $slug;
+	}
+	$kept = array();
+	foreach ( explode( '-', $slug ) as $word ) {
+		$candidate = implode( '-', array_merge( $kept, array( $word ) ) );
+		if ( strlen( rawurlencode( $candidate ) ) > $max ) {
+			break;
+		}
+		$kept[] = $word;
+	}
+	if ( empty( $kept ) ) {
+		// A single word longer than the whole budget still has to be cut somewhere.
+		while ( '' !== $slug && strlen( rawurlencode( $slug ) ) > $max ) {
+			$slug = mb_substr( $slug, 0, mb_strlen( $slug ) - 1, 'UTF-8' );
+		}
+		return trim( $slug, '-' );
+	}
+	return trim( implode( '-', $kept ), '-' );
 }
 
 /**
