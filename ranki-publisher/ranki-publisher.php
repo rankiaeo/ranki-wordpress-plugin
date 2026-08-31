@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.5
+ * Version:           1.14.6
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.5' );
+define( 'RANKI_VERSION', '1.14.6' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1517,10 +1517,14 @@ function ranki_clear_stale_redirect( $slug ) {
  * REST callback: update the SEO meta description of an existing post.
  *
  * Accepts {post_id, meta_description, seo_plugin}. Deliberately narrow: it writes
- * the description and nothing else, so a meta correction can never disturb the
- * focus keyword, the SEO title or the post content. Used by Ranki's backfill,
- * which reaches sites whose host blocks inbound REST calls by travelling through
- * the pull queue instead.
+ * only the SEO fields that were actually sent, so the post content is never
+ * touched and an omitted field keeps whatever it already had. Used by Ranki's
+ * meta backfill and by the site audit, both of which reach sites whose host
+ * blocks inbound REST calls by travelling through the pull queue instead.
+ *
+ * The audit needs all three fields, not just the description: it proposes a
+ * title and focus keyword too, and routing those through here means Ranki never
+ * needs a WordPress login for a site that already trusts the plugin.
  *
  * @param WP_REST_Request $request REST request object.
  * @return WP_REST_Response|WP_Error
@@ -1529,13 +1533,16 @@ function ranki_handle_update_meta( WP_REST_Request $request ) {
 	$params     = $request->get_json_params();
 	$post_id    = absint( $params['post_id'] ?? 0 );
 	$meta_desc  = sanitize_text_field( $params['meta_description'] ?? '' );
+	$seo_title  = sanitize_text_field( $params['seo_title'] ?? '' );
+	$focus_kw   = sanitize_text_field( $params['focus_keyword'] ?? '' );
+	$canonical  = esc_url_raw( $params['canonical'] ?? '' );
 	$seo_plugin = sanitize_text_field( $params['seo_plugin'] ?? 'rankmath' );
 
 	if ( ! $post_id ) {
 		return new WP_Error( 'missing_post_id', __( 'post_id is required', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
-	if ( '' === $meta_desc ) {
-		return new WP_Error( 'missing_meta_description', __( 'meta_description is required', 'ranki-publisher' ), array( 'status' => 400 ) );
+	if ( '' === $meta_desc && '' === $seo_title && '' === $focus_kw && '' === $canonical ) {
+		return new WP_Error( 'nothing_to_update', __( 'Send at least one SEO field', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
 	$post = get_post( $post_id );
@@ -1544,19 +1551,46 @@ function ranki_handle_update_meta( WP_REST_Request $request ) {
 		return new WP_Error( 'not_found', sprintf( __( 'Post %d not found', 'ranki-publisher' ), $post_id ), array( 'status' => 404 ) );
 	}
 
-	if ( 'yoast' === $seo_plugin ) {
-		update_post_meta( $post_id, '_yoast_wpseo_metadesc', $meta_desc );
-	} else {
-		update_post_meta( $post_id, 'rank_math_description', $meta_desc );
+	$keys = ( 'yoast' === $seo_plugin )
+		? array(
+			'meta_description' => '_yoast_wpseo_metadesc',
+			'seo_title'        => '_yoast_wpseo_title',
+			'focus_keyword'    => '_yoast_wpseo_focuskw',
+			'canonical'        => '_yoast_wpseo_canonical',
+		)
+		: array(
+			'meta_description' => 'rank_math_description',
+			'seo_title'        => 'rank_math_title',
+			'focus_keyword'    => 'rank_math_focus_keyword',
+			'canonical'        => 'rank_math_canonical_url',
+		);
+
+	// Only what was sent. An empty field means "leave this alone", never "clear it",
+	// so a request carrying one corrected description cannot wipe a title someone
+	// wrote by hand.
+	$sent    = array(
+		'meta_description' => $meta_desc,
+		'seo_title'        => $seo_title,
+		'focus_keyword'    => $focus_kw,
+		'canonical'        => $canonical,
+	);
+	$written = array();
+	foreach ( $sent as $field => $value ) {
+		if ( '' === $value ) {
+			continue;
+		}
+		update_post_meta( $post_id, $keys[ $field ], $value );
+		$written[] = $field;
 	}
 
-	// The description is rendered into <head>, so a cached page keeps serving the
-	// old one until the cache is dropped.
+	// These are rendered into <head>, so a cached page keeps serving the old ones
+	// until the cache is dropped.
 	ranki_purge_cache( $post_id, get_permalink( $post_id ) );
 
 	return rest_ensure_response( array(
 		'ok'      => true,
 		'post_id' => $post_id,
+		'written' => $written,
 	) );
 }
 

@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.5
+Stable tag: 1.14.6
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.14.6 =
+* The meta endpoint now accepts the SEO title, focus keyword and canonical as well as the description, so Ranki's site audit can correct a page without a WordPress login. Fields you do not send are left exactly as they are.
 
 = 1.14.5 =
 * Fixed: the leftover-redirect cleanup added in 1.14.4 never ran on Hebrew or Arabic sites, because WordPress and Rank Math spell the same address two different ways. Both spellings are now compared, so those articles stop bouncing to a dead address.
