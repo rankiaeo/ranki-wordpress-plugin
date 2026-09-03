@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.14.6
+Stable tag: 1.15.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.15.0 =
+* New: your Ranki dashboard now shows the enquiry itself, not just that one arrived. The name, email, phone and message a visitor typed into your contact form appear alongside the page they came from, so you can read and reply without digging through your inbox. Passwords, payment fields and file uploads are never sent, and you can turn the whole thing off under Settings, Ranki Publisher, Enquiry Details.
 
 = 1.14.6 =
 * The meta endpoint now accepts the SEO title, focus keyword and canonical as well as the description, so Ranki's site audit can correct a page without a WordPress login. Fields you do not send are left exactly as they are.

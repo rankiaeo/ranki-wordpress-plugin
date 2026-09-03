@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.14.6
+ * Version:           1.15.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,13 +16,14 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.14.6' );
+define( 'RANKI_VERSION', '1.15.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
 define( 'RANKI_OPTION_CATEGORY', 'ranki_default_category' );
 define( 'RANKI_OPTION_PREF_SRC', 'ranki_preferred_source' );
 define( 'RANKI_OPTION_PREF_SRC_OK', 'ranki_preferred_source_eligible' );
+define( 'RANKI_OPTION_LEAD_DETAILS', 'ranki_lead_details' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Enqueue lead + call tracker on all public pages.
@@ -41,9 +42,19 @@ add_action( 'wp_enqueue_scripts', function () {
 	wp_localize_script( 'ranki-tracker', 'rankiTracker', array(
 		'eventUrl' => rest_url( 'ranki/v1/event' ),
 		'nonce'    => wp_create_nonce( 'ranki_tracker' ),
+		// Whether the enquiry itself travels with the count. On by default: a lead
+		// the site owner cannot read is a lead they have to chase in their inbox.
+		'details'  => ranki_lead_details_enabled() ? '1' : '0',
 	) );
 	wp_add_inline_script( 'ranki-tracker', file_get_contents( plugin_dir_path( __FILE__ ) . 'ranki-tracker.js' ) );
 } );
+
+/**
+ * Whether submitted form fields are sent to Ranki alongside the enquiry count.
+ */
+function ranki_lead_details_enabled(): bool {
+	return '1' === (string) get_option( RANKI_OPTION_LEAD_DETAILS, '1' );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Google Preferred Sources button
@@ -298,6 +309,16 @@ function ranki_settings_page() {
 						</p>
 					</td>
 				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Enquiry Details', 'ranki-publisher' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="ranki_lead_details" value="1" <?php checked( ranki_lead_details_enabled() ); ?>>
+							<?php esc_html_e( 'Show the enquiry itself in Ranki, not just the count', 'ranki-publisher' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Sends the name, email, phone and message a visitor typed into your contact form to your own Ranki dashboard, so you can read and reply from there. Passwords, payment fields and file uploads are never sent. Untick this and Ranki records only that an enquiry happened.', 'ranki-publisher' ); ?></p>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button( __( 'Save Options', 'ranki-publisher' ) ); ?>
 		</form>
@@ -341,6 +362,7 @@ add_action( 'admin_init', function () {
 	update_option( RANKI_OPTION_CATEGORY, $category );
 
 	update_option( RANKI_OPTION_PREF_SRC, isset( $_POST['ranki_preferred_source'] ) ? '1' : '0' );
+	update_option( RANKI_OPTION_LEAD_DETAILS, isset( $_POST['ranki_lead_details'] ) ? '1' : '0' );
 
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-success is-dismissible"><p>' .
@@ -2400,6 +2422,58 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 	);
 }
 
+/**
+ * Clean the submitted form fields that ride along with a conversion event.
+ *
+ * Everything here came from a visitor's browser, so nothing is trusted: the
+ * shape is rebuilt rather than filtered, values are stripped of tags and capped,
+ * and the whole thing is dropped if the site owner turned enquiry details off.
+ *
+ * @param mixed $raw Decoded 'contact' value from the request body.
+ * @return array|null
+ */
+function ranki_sanitize_contact( $raw ) {
+	if ( ! ranki_lead_details_enabled() || ! is_array( $raw ) ) {
+		return null;
+	}
+
+	$clean = array();
+	foreach ( array( 'name', 'email', 'phone', 'message' ) as $slot ) {
+		if ( empty( $raw[ $slot ] ) || ! is_scalar( $raw[ $slot ] ) ) {
+			continue;
+		}
+		$value = trim( wp_strip_all_tags( (string) $raw[ $slot ] ) );
+		if ( '' !== $value ) {
+			$clean[ $slot ] = mb_substr( $value, 0, 2000 );
+		}
+	}
+
+	if ( ! empty( $raw['fields'] ) && is_array( $raw['fields'] ) ) {
+		$fields = array();
+		foreach ( array_slice( $raw['fields'], 0, 12 ) as $field ) {
+			if ( ! is_array( $field ) || empty( $field['value'] ) || ! is_scalar( $field['value'] ) ) {
+				continue;
+			}
+			$label = isset( $field['label'] ) && is_scalar( $field['label'] )
+				? trim( wp_strip_all_tags( (string) $field['label'] ) )
+				: '';
+			$value = trim( wp_strip_all_tags( (string) $field['value'] ) );
+			if ( '' === $value ) {
+				continue;
+			}
+			$fields[] = array(
+				'label' => mb_substr( $label ?: __( 'Field', 'ranki-publisher' ), 0, 60 ),
+				'value' => mb_substr( $value, 0, 2000 ),
+			);
+		}
+		if ( $fields ) {
+			$clean['fields'] = $fields;
+		}
+	}
+
+	return $clean ?: null;
+}
+
 function ranki_handle_event( WP_REST_Request $request ) {
 	$params     = $request->get_json_params();
 	$nonce      = sanitize_text_field( $params['nonce'] ?? '' );
@@ -2409,6 +2483,7 @@ function ranki_handle_event( WP_REST_Request $request ) {
 	$form_type  = sanitize_text_field( $params['form_type'] ?? '' );
 	$phone      = sanitize_text_field( $params['phone_number'] ?? '' );
 	$timestamp  = sanitize_text_field( $params['timestamp'] ?? '' );
+	$contact    = ranki_sanitize_contact( $params['contact'] ?? null );
 
 	if ( ! wp_verify_nonce( $nonce, 'ranki_tracker' ) ) {
 		return rest_ensure_response( array( 'ok' => false ) );
@@ -2452,6 +2527,7 @@ function ranki_handle_event( WP_REST_Request $request ) {
 				'landing_url'  => $landing ?: null,
 				'form_type'    => $form_type ?: null,
 				'phone_number' => $phone ?: null,
+				'contact'      => $contact,
 				'timestamp'    => $timestamp,
 			) ),
 		)
