@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.16.0
+Stable tag: 1.16.1
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.16.1 =
+* Fixed: recovering your past enquiries skipped any form you have since switched off, so older leads could be left behind. Forms that are no longer in use are now read as well.
 
 = 1.16.0 =
 * Fixed: enquiries sent through Gravity Forms, Ninja Forms, Fluent Forms and Formidable never reached your Ranki dashboard. Those forms send themselves in a way the page-side tracker cannot see, so your entry list filled up while Ranki reported none. They are now recorded on your server as the form is submitted, which cannot be missed.

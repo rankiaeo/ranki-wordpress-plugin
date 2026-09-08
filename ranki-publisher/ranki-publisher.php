@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.16.0
+ * Version:           1.16.1
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.16.0' );
+define( 'RANKI_VERSION', '1.16.1' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -2381,6 +2381,7 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 		'count'          => $tables['elementor']['count'],
 		'sample'         => array(),
 		'leads'          => array(),
+		'gravity_forms'  => array(),
 	);
 
 	if ( $tables['elementor']['exists'] ) {
@@ -2417,7 +2418,10 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 	// own API rather than its tables, so both the current and the legacy storage
 	// are handled and the field labels come out right.
 	if ( class_exists( 'GFAPI' ) ) {
-		$gf_forms = GFAPI::get_forms();
+		// get_forms() defaults to active forms only, so enquiries sitting on a
+		// form the site owner has since switched off would never be recovered.
+		// null asks for active and inactive alike; trashed forms stay out.
+		$gf_forms = GFAPI::get_forms( null, false );
 		$gf_count = 0;
 
 		foreach ( (array) $gf_forms as $gf_form ) {
@@ -2433,6 +2437,21 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 			if ( is_wp_error( $gf_entries ) ) {
 				continue;
 			}
+
+			// What Ranki recovered against what the form actually holds. Without
+			// this a shortfall is invisible from outside the site, and the only
+			// way to explain it is to guess.
+			$result['gravity_forms'][] = array(
+				'id'     => (int) $gf_form['id'],
+				'title'  => mb_substr( (string) ( $gf_form['title'] ?? '' ), 0, 80 ),
+				'active' => ! empty( $gf_form['is_active'] ),
+				'read'   => is_array( $gf_entries ) ? count( $gf_entries ) : 0,
+				'counts' => array(
+					'active' => (int) GFAPI::count_entries( $gf_form['id'], array( 'status' => 'active' ) ),
+					'spam'   => (int) GFAPI::count_entries( $gf_form['id'], array( 'status' => 'spam' ) ),
+					'trash'  => (int) GFAPI::count_entries( $gf_form['id'], array( 'status' => 'trash' ) ),
+				),
+			);
 
 			foreach ( (array) $gf_entries as $gf_entry ) {
 				$created = $gf_entry['date_created'] ?? '';
