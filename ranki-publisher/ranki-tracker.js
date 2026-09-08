@@ -4,6 +4,10 @@
 	var eventUrl = rankiTracker.eventUrl;
 	var nonce    = rankiTracker.nonce;
 	var details  = rankiTracker.details !== '0';
+	// Form plugins this site records on the server. Their ajax submit never
+	// reaches the listener below, and where it does the lead would be counted
+	// twice, so the browser stays out of the way for them.
+	var skipTypes = String( rankiTracker.skipTypes || '' ).split( ',' );
 
 	// The page a visitor arrived on, captured now rather than at submit time.
 	// Reporting only ever knew where a form was submitted, so a reader who landed on
@@ -14,16 +18,31 @@
 	var FIRST_TOUCH_KEY = 'ranki_first_touch';
 	var FIRST_TOUCH_MAX = 90 * 24 * 60 * 60 * 1000;
 
+	// A lead recorded on the server has no access to browser storage, so the same
+	// value is mirrored into a cookie, which does travel with the submission.
+	function rememberFirstTouch( url ) {
+		try {
+			document.cookie = FIRST_TOUCH_KEY + '=' + encodeURIComponent( url )
+				+ ';path=/;max-age=' + ( FIRST_TOUCH_MAX / 1000 )
+				+ ';samesite=lax' + ( location.protocol === 'https:' ? ';secure' : '' );
+		} catch ( e ) {}
+	}
+
 	var landingUrl = ( function () {
 		try {
 			var raw = window.localStorage.getItem( FIRST_TOUCH_KEY );
 			if ( raw ) {
 				var saved = JSON.parse( raw );
-				if ( saved && saved.u && ( Date.now() - saved.t ) < FIRST_TOUCH_MAX ) return saved.u;
+				if ( saved && saved.u && ( Date.now() - saved.t ) < FIRST_TOUCH_MAX ) {
+					rememberFirstTouch( saved.u );
+					return saved.u;
+				}
 			}
 			window.localStorage.setItem( FIRST_TOUCH_KEY, JSON.stringify( { u: location.href, t: Date.now() } ) );
+			rememberFirstTouch( location.href );
 			return location.href;
 		} catch ( e ) {
+			rememberFirstTouch( location.href );
 			// Private browsing or storage blocked. The conversion still counts, it just
 			// attributes to the page it happened on, which is the old behaviour.
 			return location.href;
@@ -63,6 +82,7 @@
 	var RE_PHONE   = /phone|tel$|^tel|telephone|mobile|cell|whatsapp|טלפון|נייד|phone[-_]?number/i;
 	var RE_NAME    = /(^|[^a-z])name([^a-z]|$)|fullname|firstname|lastname|fname|lname|your-name|שם/i;
 	var RE_NOTNAME = /user-?name|file-?name|nickname|company-?name|form-?name/i;
+	var RE_LAST    = /sur-?name|last-?name|last_name|lname|family-?name|שם משפחה/i;
 	var RE_MESSAGE = /message|comment|enquir|inquir|question|details|notes|body|הודעה|פנייה/i;
 	var RE_EMAILV  = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 	var RE_PHONEV  = /^[+()\d][\d\s().+-]{6,19}$/;
@@ -177,6 +197,19 @@
 				return RE_NAME.test( k ) && ! RE_NOTNAME.test( k );
 			}, null );
 
+		// Forms that split the name over two fields would otherwise report half of
+		// it and leave the surname buried among the extra fields.
+		if ( contact.name ) {
+			for ( var s = 0; s < entries.length; s++ ) {
+				if ( used[ s ] ) continue;
+				if ( RE_LAST.test( entries[ s ].key + ' ' + entries[ s ].label ) ) {
+					contact.name += ' ' + entries[ s ].value;
+					used[ s ] = 1;
+					break;
+				}
+			}
+		}
+
 		claim( 'message',
 			function ( e ) { return RE_MESSAGE.test( e.key ) || RE_MESSAGE.test( e.label ); },
 			function ( e ) { return e.value.length > 60; } );
@@ -209,6 +242,7 @@
 	}
 
 	function sendForm( formType, form ) {
+		if ( skipTypes.indexOf( formType ) !== -1 ) return;
 		send( 'form_lead', formType, null, details && form ? toContact( readEntries( form ) ) : null );
 	}
 

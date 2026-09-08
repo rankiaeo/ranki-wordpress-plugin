@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.15.0
+ * Version:           1.16.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.15.0' );
+define( 'RANKI_VERSION', '1.16.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -45,6 +45,10 @@ add_action( 'wp_enqueue_scripts', function () {
 		// Whether the enquiry itself travels with the count. On by default: a lead
 		// the site owner cannot read is a lead they have to chase in their inbox.
 		'details'  => ranki_lead_details_enabled() ? '1' : '0',
+		// Form plugins whose submissions this site records on the server. The
+		// browser never sees a submit event for those, and if it did the lead
+		// would be counted twice, so the tracker leaves them alone.
+		'skipTypes' => implode( ',', ranki_server_captured_form_types() ),
 	) );
 	wp_add_inline_script( 'ranki-tracker', file_get_contents( plugin_dir_path( __FILE__ ) . 'ranki-tracker.js' ) );
 } );
@@ -2408,6 +2412,53 @@ function ranki_handle_export_leads( array $payload, string $job_id, string $api_
 		$result['note'] = 'no e_submissions table found';
 	}
 
+	// Gravity Forms keeps its own entries, and a site that has been collecting
+	// them for months has a lead history Ranki never saw. Read through Gravity's
+	// own API rather than its tables, so both the current and the legacy storage
+	// are handled and the field labels come out right.
+	if ( class_exists( 'GFAPI' ) ) {
+		$gf_forms = GFAPI::get_forms();
+		$gf_count = 0;
+
+		foreach ( (array) $gf_forms as $gf_form ) {
+			if ( empty( $gf_form['id'] ) ) {
+				continue;
+			}
+			$gf_entries = GFAPI::get_entries(
+				$gf_form['id'],
+				array( 'status' => 'active' ),
+				array( 'key' => 'date_created', 'direction' => 'ASC' ),
+				array( 'offset' => 0, 'page_size' => 1000 )
+			);
+			if ( is_wp_error( $gf_entries ) ) {
+				continue;
+			}
+
+			foreach ( (array) $gf_entries as $gf_entry ) {
+				$created = $gf_entry['date_created'] ?? '';
+				if ( ! $created ) {
+					continue;
+				}
+				$gf_count++;
+				if ( $dry_run ) {
+					continue;
+				}
+				$result['leads'][] = array(
+					// Gravity stores date_created in UTC.
+					'occurred_at' => gmdate( 'c', strtotime( $created . ' UTC' ) ),
+					'page_url'    => $gf_entry['source_url'] ?? '',
+					'form_type'   => 'gravity',
+					'contact'     => ranki_lead_details_enabled()
+						? ranki_contact_from_entries( ranki_gf_field_entries( $gf_entry, $gf_form ) )
+						: null,
+				);
+			}
+		}
+
+		$result['gravity_count'] = $gf_count;
+		$result['count']        += $gf_count;
+	}
+
 	wp_remote_post(
 		$api_base . '/wp-sync/leads-export',
 		array(
@@ -2535,6 +2586,365 @@ function ranki_handle_event( WP_REST_Request $request ) {
 
 	return rest_ensure_response( array( 'ok' => true ) );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Server-side lead capture
+//
+// Gravity Forms, Ninja Forms, Fluent Forms and Formidable all submit over ajax
+// that jQuery triggers itself, and a jQuery-triggered submit never fires the
+// browser's own submit event. The tracker in the visitor's page therefore never
+// saw those enquiries at all, so a site running one of them reported zero form
+// leads while its own entry list filled up. These hooks record the submission on
+// the server instead, where it cannot be missed, and the tracker is told to skip
+// the same form types so nothing is counted twice.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Form types recorded server-side on this site, based on what is actually active.
+ *
+ * @return string[]
+ */
+function ranki_server_captured_form_types(): array {
+	$types = array();
+	if ( class_exists( 'GFForms' ) || class_exists( 'GFAPI' ) ) {
+		$types[] = 'gravity';
+	}
+	if ( class_exists( 'Ninja_Forms' ) ) {
+		$types[] = 'ninja';
+	}
+	if ( defined( 'FLUENTFORM_VERSION' ) || function_exists( 'wpFluentForm' ) ) {
+		$types[] = 'fluentform';
+	}
+	if ( class_exists( 'FrmEntry' ) && class_exists( 'FrmField' ) ) {
+		$types[] = 'formidable';
+	}
+	return $types;
+}
+
+/**
+ * Sort raw submitted fields into the four things a client acts on — who sent it,
+ * how to reach them, and what they said — keeping everything else as labelled.
+ *
+ * Mirrors the same routine in ranki-tracker.js so an enquiry reads identically
+ * whether the browser or the server reported it.
+ *
+ * @param array $entries List of array( key, label, value ).
+ * @return array|null
+ */
+function ranki_contact_from_entries( array $entries ) {
+	$re_email   = '/e-?mail|דוא|אימייל|correo|courriel/iu';
+	$re_phone   = '/phone|tel$|^tel|telephone|mobile|cell|whatsapp|טלפון|נייד/iu';
+	$re_first   = '/first[-_ ]?name|fname|forename|given[-_ ]?name|^name$|your-name|שם פרטי/iu';
+	$re_name    = '/(^|[^a-z])name([^a-z]|$)|fullname|firstname|lastname|fname|lname|your-name|שם/iu';
+	$re_last    = '/sur[-_ ]?name|last[-_ ]?name|lname|family[-_ ]?name|שם משפחה/iu';
+	$re_notname = '/user-?name|file-?name|nickname|company-?name|form-?name/iu';
+	$re_message = '/message|comment|enquir|inquir|question|details|notes|body|הודעה|פנייה/iu';
+
+	$clean = array();
+	foreach ( $entries as $entry ) {
+		$value = trim( wp_strip_all_tags( (string) ( $entry['value'] ?? '' ) ) );
+		if ( '' === $value ) {
+			continue;
+		}
+		$clean[] = array(
+			'key'   => (string) ( $entry['key'] ?? '' ),
+			'label' => trim( (string) ( $entry['label'] ?? '' ) ) ?: (string) ( $entry['key'] ?? 'Field' ),
+			'value' => mb_substr( $value, 0, 2000 ),
+		);
+	}
+	if ( ! $clean ) {
+		return null;
+	}
+
+	$contact = array();
+	$used    = array();
+
+	$claim = function ( string $slot, string $pattern, string $reject = '' ) use ( &$contact, &$used, $clean ) {
+		if ( isset( $contact[ $slot ] ) ) {
+			return;
+		}
+		foreach ( $clean as $i => $entry ) {
+			if ( isset( $used[ $i ] ) ) {
+				continue;
+			}
+			$haystack = $entry['key'] . ' ' . $entry['label'];
+			if ( ! preg_match( $pattern, $haystack ) ) {
+				continue;
+			}
+			if ( $reject && preg_match( $reject, $haystack ) ) {
+				continue;
+			}
+			$contact[ $slot ] = $entry['value'];
+			$used[ $i ]       = 1;
+			return;
+		}
+	};
+
+	$claim( 'email', $re_email );
+	$claim( 'phone', $re_phone );
+	$claim( 'name', $re_first, $re_notname );
+	$claim( 'name', $re_name, $re_notname );
+	$claim( 'message', $re_message );
+
+	// Forms that split the name over two fields would otherwise report half of it
+	// and leave the surname buried in the extra fields below.
+	if ( isset( $contact['name'] ) ) {
+		foreach ( $clean as $i => $entry ) {
+			if ( isset( $used[ $i ] ) ) {
+				continue;
+			}
+			if ( preg_match( $re_last, $entry['key'] . ' ' . $entry['label'] ) ) {
+				$contact['name'] .= ' ' . $entry['value'];
+				$used[ $i ]       = 1;
+				break;
+			}
+		}
+	}
+
+	// Value-shaped fallbacks, for forms whose fields are named input_1 and input_2.
+	if ( empty( $contact['email'] ) ) {
+		foreach ( $clean as $i => $entry ) {
+			if ( ! isset( $used[ $i ] ) && is_email( $entry['value'] ) ) {
+				$contact['email'] = $entry['value'];
+				$used[ $i ]       = 1;
+				break;
+			}
+		}
+	}
+	if ( empty( $contact['message'] ) ) {
+		foreach ( $clean as $i => $entry ) {
+			if ( ! isset( $used[ $i ] ) && mb_strlen( $entry['value'] ) > 60 ) {
+				$contact['message'] = $entry['value'];
+				$used[ $i ]         = 1;
+				break;
+			}
+		}
+	}
+
+	$fields = array();
+	foreach ( $clean as $i => $entry ) {
+		if ( isset( $used[ $i ] ) || count( $fields ) >= 12 ) {
+			continue;
+		}
+		$fields[] = array(
+			'label' => mb_substr( $entry['label'], 0, 60 ),
+			'value' => $entry['value'],
+		);
+	}
+	if ( $fields ) {
+		$contact['fields'] = $fields;
+	}
+
+	return $contact ?: null;
+}
+
+/**
+ * Field names that never travel to Ranki: credentials, payment details, and the
+ * bookkeeping every form plugin hides in the markup.
+ */
+function ranki_skip_field( string $key, string $label, string $type = '' ): bool {
+	if ( in_array( strtolower( $type ), array( 'password', 'fileupload', 'file-upload', 'file_upload', 'file', 'creditcard', 'credit_card', 'captcha', 'honeypot', 'hidden', 'html', 'section', 'page', 'pagebreak', 'divider', 'entry-preview', 'submit', 'recaptcha', 'turnstile' ), true ) ) {
+		return true;
+	}
+	return (bool) preg_match(
+		'/pass|card|cvv|cvc|ccnum|credit|security[-_ ]?code|captcha|recaptcha|hcaptcha|turnstile|nonce|token|csrf|honey/i',
+		$key . ' ' . $label
+	);
+}
+
+/**
+ * Flatten a submitted value. Multi-part fields (a name split into first and last,
+ * a checkbox group) arrive as arrays.
+ */
+function ranki_flatten_value( $value ): string {
+	if ( is_array( $value ) ) {
+		$parts = array();
+		foreach ( $value as $part ) {
+			$part = ranki_flatten_value( $part );
+			if ( '' !== $part ) {
+				$parts[] = $part;
+			}
+		}
+		return implode( ', ', $parts );
+	}
+	return is_scalar( $value ) ? trim( (string) $value ) : '';
+}
+
+/**
+ * Report one form submission to Ranki.
+ *
+ * @param string $form_type Which form plugin produced it.
+ * @param array  $entries   List of array( key, label, value ).
+ */
+function ranki_record_lead( string $form_type, array $entries ) {
+	$key = get_option( RANKI_OPTION_KEY, '' );
+	if ( ! $key ) {
+		return;
+	}
+
+	// The submission itself is an ajax call to admin-ajax.php or the REST route,
+	// so the request address is not the page the visitor filled the form in on.
+	$page_url = wp_get_referer();
+	if ( ! $page_url ) {
+		$page_url = home_url( '/' );
+	}
+
+	// The tracker records where the visitor first landed, which is usually an
+	// article rather than the contact page. It leaves it in a cookie so a lead
+	// reported from the server still credits the page that earned it.
+	$landing = isset( $_COOKIE['ranki_first_touch'] )
+		? esc_url_raw( wp_unslash( $_COOKIE['ranki_first_touch'] ) )
+		: '';
+
+	$contact = ranki_lead_details_enabled() ? ranki_contact_from_entries( $entries ) : null;
+
+	wp_remote_post(
+		RANKI_API_BASE . '/wp-sync/event',
+		array(
+			'timeout'   => 5,
+			'sslverify' => true,
+			'blocking'  => false,
+			'headers'   => array(
+				'Content-Type' => 'application/json',
+				'X-Ranki-Key'  => $key,
+			),
+			'body'      => wp_json_encode( array(
+				'type'        => 'form_lead',
+				'page_url'    => esc_url_raw( $page_url ),
+				'landing_url' => $landing ?: null,
+				'form_type'   => $form_type,
+				'contact'     => $contact,
+				'timestamp'   => gmdate( 'c' ),
+			) ),
+		)
+	);
+}
+
+/**
+ * Read one Gravity Forms entry into the shape ranki_contact_from_entries expects.
+ *
+ * @param array $entry Gravity entry.
+ * @param array $form  Gravity form definition.
+ * @return array
+ */
+function ranki_gf_field_entries( array $entry, array $form ): array {
+	if ( empty( $form['fields'] ) ) {
+		return array();
+	}
+	// A field type says what the field means far more reliably than its label,
+	// which on a real site reads "Do you have a project in mind?".
+	$slots   = array( 'email' => 'email', 'phone' => 'phone', 'name' => 'name', 'textarea' => 'message' );
+	$entries = array();
+
+	foreach ( $form['fields'] as $field ) {
+		$type  = isset( $field->type ) ? (string) $field->type : '';
+		$label = isset( $field->label ) ? (string) $field->label : '';
+		if ( ranki_skip_field( $label, $label, $type ) ) {
+			continue;
+		}
+		if ( ! empty( $field->adminOnly ) ) {
+			continue;
+		}
+
+		// get_value_export joins the parts of a multi-input field (name, address)
+		// into the one string a person would read.
+		$value = '';
+		if ( is_callable( array( $field, 'get_value_export' ) ) ) {
+			$value = $field->get_value_export( $entry );
+		} elseif ( isset( $entry[ (string) $field->id ] ) ) {
+			$value = $entry[ (string) $field->id ];
+		}
+
+		$entries[] = array(
+			'key'   => ( $slots[ $type ] ?? $type ) . '_' . ( $field->id ?? '' ),
+			'label' => $label,
+			'value' => ranki_flatten_value( $value ),
+		);
+	}
+
+	return $entries;
+}
+
+// Gravity Forms. Runs only for entries that passed spam and validation.
+add_action( 'gform_after_submission', function ( $entry, $form ) {
+	if ( ! is_array( $form ) || ! is_array( $entry ) ) {
+		return;
+	}
+	ranki_record_lead( 'gravity', ranki_gf_field_entries( $entry, $form ) );
+}, 20, 2 );
+
+// Ninja Forms.
+add_action( 'ninja_forms_after_submission', function ( $form_data ) {
+	$fields  = is_array( $form_data ) && ! empty( $form_data['fields'] ) ? $form_data['fields'] : array();
+	$entries = array();
+
+	foreach ( (array) $fields as $field ) {
+		if ( ! is_array( $field ) ) {
+			continue;
+		}
+		$key   = (string) ( $field['key'] ?? '' );
+		$label = (string) ( $field['label'] ?? '' );
+		$type  = (string) ( $field['type'] ?? '' );
+		if ( ranki_skip_field( $key, $label, $type ) ) {
+			continue;
+		}
+		$entries[] = array(
+			'key'   => $key ?: $type,
+			'label' => $label,
+			'value' => ranki_flatten_value( $field['value'] ?? '' ),
+		);
+	}
+
+	ranki_record_lead( 'ninja', $entries );
+}, 20, 1 );
+
+// Fluent Forms. The submitted data arrives keyed by field name, no labels.
+add_action( 'fluentform/submission_inserted', function ( $entry_id, $form_data, $form ) {
+	$entries = array();
+	foreach ( (array) $form_data as $key => $value ) {
+		$key = (string) $key;
+		if ( ranki_skip_field( $key, $key ) ) {
+			continue;
+		}
+		$entries[] = array(
+			'key'   => $key,
+			'label' => ucfirst( str_replace( array( '-', '_' ), ' ', $key ) ),
+			'value' => ranki_flatten_value( $value ),
+		);
+	}
+	ranki_record_lead( 'fluentform', $entries );
+}, 20, 3 );
+
+// Formidable Forms.
+add_action( 'frm_after_create_entry', function ( $entry_id, $form_id ) {
+	if ( ! class_exists( 'FrmEntry' ) || ! class_exists( 'FrmField' ) ) {
+		return;
+	}
+	$entry  = FrmEntry::getOne( $entry_id, true );
+	$fields = FrmField::get_all_for_form( $form_id );
+	if ( ! $entry || ! is_array( $fields ) ) {
+		return;
+	}
+
+	$metas   = isset( $entry->metas ) && is_array( $entry->metas ) ? $entry->metas : array();
+	$entries = array();
+
+	foreach ( $fields as $field ) {
+		$type  = isset( $field->type ) ? (string) $field->type : '';
+		$label = isset( $field->name ) ? (string) $field->name : '';
+		$key   = isset( $field->field_key ) ? (string) $field->field_key : $type;
+		if ( ranki_skip_field( $key, $label, $type ) ) {
+			continue;
+		}
+		$entries[] = array(
+			'key'   => $key,
+			'label' => $label,
+			'value' => ranki_flatten_value( $metas[ $field->id ] ?? '' ),
+		);
+	}
+
+	ranki_record_lead( 'formidable', $entries );
+}, 30, 2 );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Output schema JSON-LD in <head> for posts published by Ranki
