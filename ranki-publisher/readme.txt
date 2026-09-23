@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.16.1
+Stable tag: 1.16.2
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,10 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.16.2 =
+* Fixed: the questions block Google and AI assistants read was saved incorrectly. Hebrew and other non-English questions came out as unreadable codes, and any question or answer containing a quote mark was left off the page entirely.
+* Fixed: on sites running Rank Math or Yoast, articles with a video printed a second article description next to the SEO plugin's. Only the questions and the video are added now.
 
 = 1.16.1 =
 * Fixed: recovering your past enquiries skipped any form you have since switched off, so older leads could be left behind. Forms that are no longer in use are now read as well.

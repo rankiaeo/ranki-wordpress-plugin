@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.16.1
+ * Version:           1.16.2
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.16.1' );
+define( 'RANKI_VERSION', '1.16.2' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -1182,7 +1182,7 @@ function ranki_handle_publish( WP_REST_Request $request ) {
 	if ( $schema_raw ) {
 		$decoded = json_decode( $schema_raw, true );
 		if ( null !== $decoded ) {
-			$schema = wp_json_encode( $decoded );
+			$schema = ranki_schema_for_meta( $decoded );
 		}
 	}
 
@@ -2265,6 +2265,23 @@ function ranki_apply_local_seo( array $payload ) {
  * @param WP_REST_Request $request REST request object.
  * @return WP_REST_Response|WP_Error
  */
+/**
+ * Encode schema for storage in post meta.
+ *
+ * update_post_meta() strips one level of backslashes from whatever it is given.
+ * JSON is full of them: every non-English letter was stored as \u05db and came
+ * out as "u05db", so every Hebrew FAQ block Google read was gibberish, and an
+ * escaped quote mark (\") lost its backslash, broke the JSON, and the whole block
+ * was silently dropped from the page. Letters are kept as they are and the
+ * remaining backslashes are doubled so exactly the JSON sent is what is stored.
+ *
+ * @param mixed $decoded Decoded schema.
+ * @return string
+ */
+function ranki_schema_for_meta( $decoded ): string {
+	return wp_slash( (string) wp_json_encode( $decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+}
+
 function ranki_handle_set_schema( WP_REST_Request $request ) {
 	$params  = $request->get_json_params();
 	$post_id = absint( $params['post_id'] ?? 0 );
@@ -2288,8 +2305,7 @@ function ranki_handle_set_schema( WP_REST_Request $request ) {
 		return new WP_Error( 'invalid_json', __( 'schema_jsonld must be valid JSON', 'ranki-publisher' ), array( 'status' => 400 ) );
 	}
 
-	$schema = wp_json_encode( $decoded );
-	update_post_meta( $post_id, '_ranki_schema_jsonld', $schema );
+	update_post_meta( $post_id, '_ranki_schema_jsonld', ranki_schema_for_meta( $decoded ) );
 	ranki_purge_cache( $post_id, get_permalink( $post_id ) );
 
 	return rest_ensure_response( array(
@@ -2987,21 +3003,33 @@ add_action( 'wp_head', function () {
 	}
 
 	// If a dedicated SEO plugin already builds the page schema, don't emit a
-	// competing graph. Keep only FAQPage (which those plugins don't generate and
-	// which still feeds AI engines) and let the SEO plugin own everything else.
+	// competing graph. Keep only FAQPage and VideoObject (which those plugins don't
+	// generate and which still feed Google and AI engines) and let the SEO plugin
+	// own everything else. Articles with a video arrive as a list of blocks rather
+	// than one graph, and used to skip this filter entirely, so they printed a
+	// second Article next to the SEO plugin's.
 	$seo_plugin_active = defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' )
 		|| defined( 'WPSEO_VERSION' ) || class_exists( 'WPSEO_Frontend' );
-	if ( $seo_plugin_active && isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
-		$faq_nodes = array_values( array_filter(
-			$decoded['@graph'],
-			function ( $node ) {
-				return is_array( $node ) && isset( $node['@type'] ) && 'FAQPage' === $node['@type'];
+	if ( $seo_plugin_active ) {
+		$roots = isset( $decoded['@graph'] ) || isset( $decoded['@type'] ) ? array( $decoded ) : $decoded;
+		$keep  = array();
+		foreach ( $roots as $root ) {
+			if ( ! is_array( $root ) ) {
+				continue;
 			}
-		) );
-		if ( empty( $faq_nodes ) ) {
+			$nodes = isset( $root['@graph'] ) && is_array( $root['@graph'] ) ? $root['@graph'] : array( $root );
+			foreach ( $nodes as $node ) {
+				$types = is_array( $node ) && isset( $node['@type'] ) ? (array) $node['@type'] : array();
+				if ( array_intersect( $types, array( 'FAQPage', 'VideoObject' ) ) ) {
+					unset( $node['@context'] );
+					$keep[] = $node;
+				}
+			}
+		}
+		if ( empty( $keep ) ) {
 			return;
 		}
-		$decoded['@graph'] = $faq_nodes;
+		$decoded = array( '@context' => 'https://schema.org', '@graph' => $keep );
 	}
 
 	// Re-encode through PHP's JSON encoder to neutralise any injection attempts.
