@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.16.2
+ * Version:           1.16.3
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.16.2' );
+define( 'RANKI_VERSION', '1.16.3' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -412,6 +412,30 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 } );
 
 add_action( 'ranki_sync_cron', 'ranki_process_queue' );
+
+/**
+ * Rank Math only loads its sitemap cache watcher in wp-admin and WP-Cron, so a
+ * post published over REST or by the front-end poller never clears the cached
+ * sitemap files and the sitemap freezes at the last admin-side save. Clear the
+ * whole cache ourselves: its per-type clear only deletes files it remembers
+ * writing, and stale files it has forgotten are served forever.
+ */
+add_action( 'transition_post_status', function ( $new_status, $old_status ) {
+	if ( 'publish' !== $new_status && 'publish' !== $old_status ) {
+		return;
+	}
+	if ( is_admin() || wp_doing_cron() || ! class_exists( 'RankMath\Sitemap\Cache' ) ) {
+		return;
+	}
+	// Late priority so it still runs when the front-end poller publishes from shutdown.
+	if ( ! has_action( 'shutdown', 'ranki_clear_rank_math_sitemap' ) ) {
+		add_action( 'shutdown', 'ranki_clear_rank_math_sitemap', 1000 );
+	}
+}, 10, 2 );
+
+function ranki_clear_rank_math_sitemap() {
+	\RankMath\Sitemap\Cache::invalidate_storage();
+}
 
 // Re-schedule cron if it was somehow cleared.
 add_action( 'init', function () {
