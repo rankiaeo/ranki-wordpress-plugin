@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.17.0
+Stable tag: 1.18.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,9 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.18.0 =
+* With Rank Math or Yoast active, articles now name the author set in Ranki (name, bio, photo, profile link) instead of the WordPress user who published them.
 
 = 1.17.0 =
 * Security: the site key is now only accepted in a request header, never in a web address, so it can no longer leak through server logs or caches.

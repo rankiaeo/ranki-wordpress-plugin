@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.17.0
+ * Version:           1.18.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.17.0' );
+define( 'RANKI_VERSION', '1.18.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -3054,6 +3054,88 @@ add_action( 'frm_after_create_entry', function ( $entry_id, $form_id ) {
 
 	ranki_record_lead( 'formidable', $entries );
 }, 30, 2 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Author for Rank Math and Yoast
+// ─────────────────────────────────────────────────────────────────────────────
+// With an SEO plugin active, Ranki steps aside and only keeps its FAQ block, so the
+// SEO plugin's article schema named whichever WordPress user published the post,
+// usually the site admin. When the client has switched on Ranki's author card, its
+// real author (name, bio, photo, profile link) is handed to the SEO plugin's own
+// article instead, so there is one article, with the right person on it.
+
+/**
+ * The Person Ranki stored as this post's article author, or null.
+ *
+ * @param int $post_id Post ID.
+ * @return array|null
+ */
+function ranki_schema_author( $post_id ) {
+	$decoded = json_decode( (string) get_post_meta( $post_id, '_ranki_schema_jsonld', true ), true );
+	if ( ! is_array( $decoded ) || ! isset( $decoded['@graph'] ) || ! is_array( $decoded['@graph'] ) ) {
+		return null;
+	}
+	foreach ( $decoded['@graph'] as $node ) {
+		$author = is_array( $node ) && isset( $node['author'] ) && is_array( $node['author'] ) ? $node['author'] : null;
+		if ( $author && isset( $author['@type'], $author['name'] ) && 'Person' === $author['@type'] && '' !== trim( (string) $author['name'] ) ) {
+			$author['@id'] = get_permalink( $post_id ) . '#ranki-author';
+			return $author;
+		}
+	}
+	return null;
+}
+
+/**
+ * True for the article-like schema types Rank Math and Yoast use for a post.
+ *
+ * @param mixed $type A node's @type, a string or a list.
+ * @return bool
+ */
+function ranki_is_article_type( $type ) {
+	$types = array( 'Article', 'BlogPosting', 'NewsArticle', 'TechArticle' );
+	return (bool) array_intersect( (array) $type, $types );
+}
+
+add_filter(
+	'rank_math/json_ld',
+	function ( $data, $jsonld = null ) {
+		if ( ! is_array( $data ) || ! is_singular() ) {
+			return $data;
+		}
+		$person = ranki_schema_author( get_the_ID() );
+		if ( ! $person ) {
+			return $data;
+		}
+		$found = false;
+		foreach ( $data as $key => $node ) {
+			if ( is_array( $node ) && isset( $node['@type'] ) && ranki_is_article_type( $node['@type'] ) ) {
+				$data[ $key ]['author'] = array( '@id' => $person['@id'], 'name' => $person['name'] );
+				$found                  = true;
+			}
+		}
+		if ( $found ) {
+			$data['rankiAuthor'] = $person;
+		}
+		return $data;
+	},
+	99,
+	2
+);
+
+add_filter(
+	'wpseo_schema_article',
+	function ( $data ) {
+		if ( ! is_array( $data ) || ! is_singular() ) {
+			return $data;
+		}
+		$person = ranki_schema_author( get_the_ID() );
+		if ( $person ) {
+			$data['author'] = $person;
+		}
+		return $data;
+	},
+	99
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Output schema JSON-LD in <head> for posts published by Ranki
