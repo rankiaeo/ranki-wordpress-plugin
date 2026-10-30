@@ -3,7 +3,7 @@
  * Plugin Name:       Ranki Publisher
  * Plugin URI:        https://github.com/rankiaeo/ranki-wordpress-plugin
  * Description:       Connects your WordPress site to Ranki for automated AI SEO content publishing. Install this plugin, then copy your secret key from Settings → Ranki Publisher into your Ranki admin panel.
- * Version:           1.16.3
+ * Version:           1.17.0
  * Author:            Ranki
  * Author URI:        https://ranki.com.au
  * License:           GPL-2.0-or-later
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'RANKI_VERSION', '1.16.3' );
+define( 'RANKI_VERSION', '1.17.0' );
 define( 'RANKI_OPTION_KEY', 'ranki_secret_key' );
 define( 'RANKI_OPTION_STATUS',   'ranki_connection_status' );
 define( 'RANKI_OPTION_AUTHOR',   'ranki_post_author_id' );
@@ -24,6 +24,7 @@ define( 'RANKI_OPTION_CATEGORY', 'ranki_default_category' );
 define( 'RANKI_OPTION_PREF_SRC', 'ranki_preferred_source' );
 define( 'RANKI_OPTION_PREF_SRC_OK', 'ranki_preferred_source_eligible' );
 define( 'RANKI_OPTION_LEAD_DETAILS', 'ranki_lead_details' );
+define( 'RANKI_OPTION_SSO', 'ranki_sso_enabled' );
 define( 'RANKI_API_BASE',   'https://ranki-backend-production.up.railway.app/api' );
 
 // Enqueue lead + call tracker on all public pages.
@@ -58,6 +59,14 @@ add_action( 'wp_enqueue_scripts', function () {
  */
 function ranki_lead_details_enabled(): bool {
 	return '1' === (string) get_option( RANKI_OPTION_LEAD_DETAILS, '1' );
+}
+
+/**
+ * Whether Ranki may open a one-click admin login on this site. The site owner
+ * can switch it off, so a leaked site key never becomes a way into wp-admin.
+ */
+function ranki_sso_enabled(): bool {
+	return '1' === (string) get_option( RANKI_OPTION_SSO, '1' );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +332,26 @@ function ranki_settings_page() {
 						<p class="description"><?php esc_html_e( 'Sends the name, email, phone and message a visitor typed into your contact form to your own Ranki dashboard, so you can read and reply from there. Passwords, payment fields and file uploads are never sent. Untick this and Ranki records only that an enquiry happened.', 'ranki-publisher' ); ?></p>
 					</td>
 				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Ranki Support Login', 'ranki-publisher' ); ?></th>
+					<td>
+						<label>
+							<input type="checkbox" name="ranki_sso_enabled" value="1" <?php checked( ranki_sso_enabled() ); ?>>
+							<?php esc_html_e( 'Let the Ranki team open this dashboard in one click to fix things for you', 'ranki-publisher' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Each login link works once, for 60 seconds, and every use is listed below. Untick this and Ranki keeps publishing, but can no longer sign in here.', 'ranki-publisher' ); ?></p>
+						<?php
+						$sso_log = get_option( 'ranki_sso_log', array() );
+						if ( is_array( $sso_log ) && $sso_log ) {
+							echo '<ul class="description">';
+							foreach ( array_slice( $sso_log, 0, 5 ) as $entry ) {
+								echo '<li>' . esc_html( ( $entry['at'] ?? '' ) . ', ' . ( $entry['user'] ?? '' ) . ', ' . ( $entry['ip'] ?? '' ) ) . '</li>';
+							}
+							echo '</ul>';
+						}
+						?>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button( __( 'Save Options', 'ranki-publisher' ) ); ?>
 		</form>
@@ -367,6 +396,7 @@ add_action( 'admin_init', function () {
 
 	update_option( RANKI_OPTION_PREF_SRC, isset( $_POST['ranki_preferred_source'] ) ? '1' : '0' );
 	update_option( RANKI_OPTION_LEAD_DETAILS, isset( $_POST['ranki_lead_details'] ) ? '1' : '0' );
+	update_option( RANKI_OPTION_SSO, isset( $_POST['ranki_sso_enabled'] ) ? '1' : '0' );
 
 	add_action( 'admin_notices', function () {
 		echo '<div class="notice notice-success is-dismissible"><p>' .
@@ -757,6 +787,10 @@ function ranki_sso_target_user() {
  * Mint a short-lived single-use login token.
  */
 function ranki_handle_sso_token( WP_REST_Request $request ) {
+	if ( ! ranki_sso_enabled() ) {
+		return new WP_Error( 'ranki_sso_disabled', __( 'The site owner has switched off Ranki support login', 'ranki-publisher' ), array( 'status' => 403 ) );
+	}
+
 	$user = ranki_sso_target_user();
 	if ( ! $user ) {
 		return new WP_Error( 'ranki_no_admin', __( 'No administrator account found', 'ranki-publisher' ), array( 'status' => 500 ) );
@@ -781,6 +815,12 @@ add_action( 'template_redirect', function () {
 	$token = sanitize_text_field( wp_unslash( $_GET['ranki_sso'] ) );
 	$key   = 'ranki_sso_' . hash( 'sha256', $token );
 	$user_id = get_transient( $key );
+
+	// Switching the option off also kills a link minted a few seconds earlier.
+	if ( ! ranki_sso_enabled() ) {
+		delete_transient( $key );
+		wp_die( esc_html__( 'Ranki support login is switched off on this site.', 'ranki-publisher' ), 403 );
+	}
 
 	// Single use — burn it before logging anyone in, so a replayed URL fails
 	// even if the redirect below is interrupted.
@@ -830,10 +870,10 @@ add_action( 'template_redirect', function () {
 		return;
 	}
 
-	// Authenticate: key from HTTP header or query param.
+	// Header only. A key in the URL ends up in server logs, caches and analytics.
 	$provided = isset( $_SERVER['HTTP_X_RANKI_KEY'] )
 		? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_RANKI_KEY'] ) )
-		: ( isset( $_GET['ranki_key'] ) ? sanitize_text_field( wp_unslash( $_GET['ranki_key'] ) ) : '' );
+		: '';
 
 	$stored = get_option( RANKI_OPTION_KEY, '' );
 	if ( ! $stored || ! hash_equals( $stored, $provided ) ) {
@@ -849,7 +889,7 @@ add_action( 'template_redirect', function () {
 	if ( 'sso-token' === $action ) {
 		$result = ranki_handle_sso_token( new WP_REST_Request( 'POST' ) );
 		if ( is_wp_error( $result ) ) {
-			wp_send_json( array( 'error' => $result->get_error_message() ), 500 );
+			wp_send_json( array( 'error' => $result->get_error_message() ), $result->get_error_data()['status'] ?? 500 );
 		}
 		wp_send_json( $result->get_data() );
 		exit;
@@ -910,10 +950,8 @@ add_action( 'template_redirect', function () {
  * @return bool True if the supplied key matches the stored secret.
  */
 function ranki_check_auth( WP_REST_Request $request ) {
+	// Header only, never a URL or body param: see the direct endpoint above.
 	$provided = $request->get_header( 'X-Ranki-Key' );
-	if ( ! $provided ) {
-		$provided = $request->get_param( 'ranki_key' );
-	}
 	$stored = get_option( RANKI_OPTION_KEY, '' );
 	return $stored && hash_equals( $stored, (string) $provided );
 }
@@ -2607,13 +2645,25 @@ function ranki_handle_event( WP_REST_Request $request ) {
 	// so cap how many events one IP can send in a short window — otherwise a
 	// scraped nonce could be replayed to flood the client's Leads dashboard
 	// with fake entries.
-	$ip           = sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? 'unknown' );
-	$rate_key     = 'ranki_evt_' . md5( $ip );
-	$recent_count = (int) get_transient( $rate_key );
-	if ( $recent_count >= 20 ) {
+	// A real visitor sends one or two enquiries, so 10 an hour per IP is generous.
+	// The site-wide cap catches a flood spread across many IPs.
+	$ip         = sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? 'unknown' );
+	$ip_key     = 'ranki_evt_' . md5( $ip );
+	$site_key   = 'ranki_evt_site';
+	$ip_count   = (int) get_transient( $ip_key );
+	$site_count = (int) get_transient( $site_key );
+	if ( $ip_count >= 10 || $site_count >= 100 ) {
 		return rest_ensure_response( array( 'ok' => false ) );
 	}
-	set_transient( $rate_key, $recent_count + 1, MINUTE_IN_SECONDS );
+	set_transient( $ip_key, $ip_count + 1, HOUR_IN_SECONDS );
+	set_transient( $site_key, $site_count + 1, HOUR_IN_SECONDS );
+
+	// The same form sent twice within a minute is a double click or a replay.
+	$dupe_key = 'ranki_evt_dupe_' . md5( $ip . '|' . $event_type . '|' . $page_url . '|' . wp_json_encode( $contact ) );
+	if ( get_transient( $dupe_key ) ) {
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+	set_transient( $dupe_key, 1, MINUTE_IN_SECONDS );
 
 	$key = get_option( RANKI_OPTION_KEY, '' );
 	if ( ! $key ) {

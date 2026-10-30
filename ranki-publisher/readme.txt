@@ -3,7 +3,7 @@ Contributors: rankiseo
 Tags: seo, content, publishing, automation, ai
 Requires at least: 5.6
 Tested up to: 7.0
-Stable tag: 1.16.3
+Stable tag: 1.17.0
 Requires PHP: 7.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -90,6 +90,11 @@ This plugin requires a Ranki account and communicates with the Ranki service at 
 * Ranki Privacy Policy: https://ranki.com.au/privacy
 
 == Changelog ==
+
+= 1.17.0 =
+* Security: the site key is now only accepted in a request header, never in a web address, so it can no longer leak through server logs or caches.
+* Security: new "Ranki Support Login" option. Site owners can switch off one-click login by the Ranki team, and the last five logins are listed under it.
+* Security: enquiry tracking now caps how many leads one visitor and the whole site can send per hour, and ignores the same form sent twice in a minute, so fake leads cannot flood the dashboard.
 
 = 1.16.3 =
 * Fixed: on sites running Rank Math, new articles and pages could be left out of the sitemap for weeks, so Google was slow to find them. The sitemap now refreshes every time Ranki publishes or updates a post.
